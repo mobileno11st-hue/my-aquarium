@@ -140,9 +140,9 @@ const bubbles = [], pellets = [], groups = new Map();
 const pebbles = Array.from({ length: 26 }, () => ({ x: Math.random(), y: rand(0.2, 0.9), r: rand(2, 7), c: rand(60, 120) }));
 
 function resize() {
-  DPR = Math.min(2, window.devicePixelRatio || 1);
+  DPR = Math.min(dprCap, window.devicePixelRatio || 1);
   W = window.innerWidth; H = window.innerHeight;
-  tank.width = Math.round(W * DPR); tank.height = Math.round(H * DPR);
+  tank.width = Math.round(W * DPR); tank.height = Math.round(H * DPR); glc.width = hudc.width = tank.width; glc.height = hudc.height = tank.height;
   sandY = H * 0.88; surfY = Math.max(16, $('count').getBoundingClientRect().top - 7); rescale();
   // 화면 크기가 바뀌면(폰을 돌릴 때 등) 물고기를 새 화면 안으로 불러들인다
   for (const f of shown) { f.x = clamp(f.x, 0, W); f.y = clamp(f.y, 0, sandY); f.rest = 0; retarget(f); }
@@ -272,13 +272,112 @@ function stepFish(f, dt, t) {
   drawFish(ctx, f.img, f.x, f.y + Math.sin(t * 0.8 + f.depth * 9) * 2 * f.go, L, f.face, tilt, f.phase, up, st === 'bottom' ? 0.5 : 1);
 }
 
+// ───────────────────────── 진짜 같은 물: 그래픽카드(WebGL)로 굴절·빛 그물·빛줄기를 실시간 계산
+// 2D로 그린 장면(물고기·수초·바위·모래)을 통째로 넘겨받아 물속에 넣은 것처럼 합성한다. 안 되는 기기는 기존 그림으로 표시.
+const glc = document.createElement('canvas'), hudc = document.createElement('canvas'), hctx = hudc.getContext('2d');
+for (const c of [glc, hudc]) c.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;display:block;pointer-events:none';
+let G = null, dprCap = 2, slowAcc = 0, slowN = 0;
+const VS = 'attribute vec2 aPos; varying vec2 vUv; void main(){ vUv = vec2(aPos.x * 0.5 + 0.5, 0.5 - aPos.y * 0.5); gl_Position = vec4(aPos, 0.0, 1.0); }';
+const FS = `precision highp float;
+varying vec2 vUv;
+uniform sampler2D uTex; uniform vec2 uRes; uniform float uTime, uDay, uDusk, uSurf, uSand; uniform vec3 uC0, uC1, uC2;
+float hash(float n){ return fract(sin(n) * 43758.5453123); }
+float n1(float x){ float i = floor(x), f = fract(x); f = f * f * (3.0 - 2.0 * f); return mix(hash(i), hash(i + 1.0), f); }
+// 수면 물결이 빛을 모아 만드는 그물 무늬
+float caustic(vec2 uv, float time){
+  vec2 p = mod(uv * 6.28318530718, 6.28318530718) - 250.0; vec2 i = p; float c = 1.0; const float inten = 0.005;
+  for (int n = 0; n < 4; n++) {
+    float t = time * (1.0 - (3.5 / float(n + 1)));
+    i = p + vec2(cos(t - i.x) + sin(t + i.y), sin(t - i.y) + cos(t + i.x));
+    c += 1.0 / length(vec2(p.x / (sin(i.x + t) / inten), p.y / (cos(i.y + t) / inten)));
+  }
+  c /= 4.0; c = 1.17 - pow(c, 1.4); return pow(abs(c), 8.0);
+}
+void main(){
+  vec2 uv = vUv; float asp = uRes.x / uRes.y, t = uTime, fx = uv.x * asp;
+  float surf = uSurf + sin(fx * 22.0 + t * 1.6) * 0.0026 + sin(fx * 51.0 - t * 2.3) * 0.0015;
+  float depth = clamp((uv.y - surf) / (1.0 - surf), 0.0, 1.0);
+  float lightK = 0.12 + 0.88 * uDay;
+  // 물빛: 위는 밝고 아래로 갈수록 깊어진다
+  vec3 col = mix(uC0, uC1, smoothstep(0.0, 0.45, depth)); col = mix(col, uC2, smoothstep(0.45, 1.0, depth));
+  // 물 건너편에 초점이 나간 듯 흐릿한 바위 (깊이감)
+  float h1 = 0.64 - 0.12 * n1(fx * 2.3 + 3.0) - 0.04 * n1(fx * 7.0 + 1.0);
+  col = mix(col, uC2 * 0.92, smoothstep(h1, h1 + 0.05, uv.y) * 0.30);
+  float h2 = 0.76 - 0.10 * n1(fx * 3.1 + 11.0) - 0.03 * n1(fx * 9.0 + 5.0);
+  col = mix(col, uC2 * 0.80, smoothstep(h2, h2 + 0.035, uv.y) * 0.38);
+  // 수면 위 조명에서 퍼져 내려오는 빛줄기
+  vec2 d = vec2(fx, uv.y) - vec2(0.30 * asp, -0.35); float ang = atan(d.x, d.y);
+  float r = n1(ang * 26.0 + t * 0.22) * n1(ang * 57.0 - t * 0.31 + 7.0);
+  r = smoothstep(0.18, 0.75, r) * (1.0 - smoothstep(0.0, 0.95, depth)) * (0.6 + 0.4 * n1(ang * 9.0 + t * 0.1));
+  vec3 rayCol = vec3(0.80, 0.96, 1.0) * r * 0.34 * lightK;
+  col += rayCol;
+  // 수면 바로 아래: 밝게 번지는 빛과 일렁이는 물결 그림자
+  float sh = caustic(vec2(fx * 1.4 + t * 0.02, depth * 9.0), t * 0.55);
+  col += vec3(0.85, 0.97, 1.0) * (exp(-depth * 10.0) * (0.10 + 0.30 * lightK) + sh * exp(-depth * 16.0) * 0.55 * lightK);
+  col += vec3(0.55, 0.65, 1.0) * (1.0 - uDay) * 0.22 * exp(-length(vec2(fx - 0.72 * asp, uv.y)) * 3.5);   // 달빛
+  col += vec3(1.0, 0.52, 0.25) * uDusk * 0.28 * exp(-depth * 3.0);                                          // 노을
+  // 물고기·수초·바닥: 물에 굴절되어 살짝 일렁이고, 빛 그물이 그 위로 흐른다
+  vec2 wob = vec2(sin(uv.y * 42.0 + t * 1.25) + sin(uv.y * 19.0 - t * 0.85 + uv.x * 8.0), cos(fx * 34.0 + t * 1.05)) * 0.0011 * smoothstep(0.0, 0.03, depth);
+  vec4 L = texture2D(uTex, uv + wob);
+  float fl = smoothstep(uSand - 0.012, uSand + 0.02, uv.y);
+  float ca = caustic(mix(vec2(fx, uv.y) * 1.9, vec2(fx * 2.6, (uv.y - uSand) * 9.0), fl), t * 0.5);
+  vec3 lit = L.rgb * (mix(0.92, 0.80, fl) + ca * mix(0.55, 1.25, fl) * lightK);
+  lit = mix(lit, col * L.a, (0.06 + 0.16 * depth) * (1.0 - fl));
+  col = lit + col * (1.0 - L.a);
+  col += rayCol * L.a * 0.5;
+  // 수면 선과 그 위 수조 덮개 그늘
+  float above = 1.0 - smoothstep(surf - 0.0015, surf + 0.0015, uv.y);
+  vec3 hood = mix(vec3(0.02, 0.06, 0.09), mix(vec3(0.04, 0.11, 0.16), vec3(0.16, 0.35, 0.42), uDay), uv.y / max(surf, 0.001));
+  col = mix(col, hood, above);
+  col += vec3(0.95, 1.0, 1.0) * (1.0 - smoothstep(0.0, 0.0028, abs(uv.y - surf))) * (0.3 + 0.6 * uDay);
+  col *= mix(0.62, 1.0, uDay);
+  // 유리 수조: 가장자리 그늘, 비스듬한 유리 반사
+  vec2 q = uv - vec2(0.5, 0.48); col *= 1.0 - dot(q, q) * 0.75;
+  float gs = fx + uv.y * 0.6; col += vec3(1.0) * smoothstep(0.16, 0.24, gs) * (1.0 - smoothstep(0.28, 0.36, gs)) * 0.035;
+  gl_FragColor = vec4(col, 1.0);
+}`;
+function initGL() {
+  try {
+    const g = glc.getContext('webgl', { alpha: false, antialias: false, powerPreference: 'high-performance' }); if (!g) return;
+    const sh = (type, src) => { const s = g.createShader(type); g.shaderSource(s, src); g.compileShader(s); if (!g.getShaderParameter(s, g.COMPILE_STATUS)) throw new Error(g.getShaderInfoLog(s)); return s; };
+    const p = g.createProgram(); g.attachShader(p, sh(g.VERTEX_SHADER, VS)); g.attachShader(p, sh(g.FRAGMENT_SHADER, FS)); g.linkProgram(p);
+    if (!g.getProgramParameter(p, g.LINK_STATUS)) throw new Error(g.getProgramInfoLog(p));
+    g.useProgram(p);
+    g.bindBuffer(g.ARRAY_BUFFER, g.createBuffer()); g.bufferData(g.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), g.STATIC_DRAW);
+    const loc = g.getAttribLocation(p, 'aPos'); g.enableVertexAttribArray(loc); g.vertexAttribPointer(loc, 2, g.FLOAT, false, 0, 0);
+    g.bindTexture(g.TEXTURE_2D, g.createTexture());
+    for (const [k, v] of [[g.TEXTURE_MIN_FILTER, g.LINEAR], [g.TEXTURE_MAG_FILTER, g.LINEAR], [g.TEXTURE_WRAP_S, g.CLAMP_TO_EDGE], [g.TEXTURE_WRAP_T, g.CLAMP_TO_EDGE]]) g.texParameteri(g.TEXTURE_2D, k, v);
+    g.pixelStorei(g.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+    const U = {}; for (const n of ['uTex', 'uRes', 'uTime', 'uDay', 'uDusk', 'uSurf', 'uSand', 'uC0', 'uC1', 'uC2']) U[n] = g.getUniformLocation(p, n);
+    G = { g, U };
+    tank.before(glc); tank.after(hudc); tank.style.opacity = '0';   // 2D 그림은 보이지 않게 두고 터치만 받는다
+    glc.addEventListener('webglcontextlost', (e) => { e.preventDefault(); G = null; tank.style.opacity = '1'; glc.remove(); hudc.remove(); });
+  } catch (err) { console.warn('WebGL을 쓸 수 없어 기본 그림으로 표시합니다', err); G = null; }
+}
+function glRender(t, day, dusk, sc) {
+  const { g, U } = G;
+  g.viewport(0, 0, glc.width, glc.height);
+  g.texImage2D(g.TEXTURE_2D, 0, g.RGBA, g.RGBA, g.UNSIGNED_BYTE, tank);
+  const c = (i) => { const A = hex(sc.night[i]), B = hex(sc.day[i]); return A.map((v, k) => (v + (B[k] - v) * day) / 255); };
+  g.uniform1i(U.uTex, 0); g.uniform2f(U.uRes, glc.width, glc.height); g.uniform1f(U.uTime, t % 900);
+  g.uniform1f(U.uDay, day); g.uniform1f(U.uDusk, dusk); g.uniform1f(U.uSurf, surfY / H); g.uniform1f(U.uSand, sandY / H);
+  g.uniform3fv(U.uC0, c(0)); g.uniform3fv(U.uC1, c(1)); g.uniform3fv(U.uC2, c(2));
+  g.drawArrays(g.TRIANGLE_STRIP, 0, 4);
+}
+initGL();
+
+
 let last = 0;
 function frame(now) {
+  // 느린 기기에서는 해상도를 낮춰 부드럽게
+  if (G) { slowAcc += Math.min(0.1, (now - last) / 1000); if (++slowN >= 90) { const avg = slowAcc / slowN; slowAcc = slowN = 0; if (avg > 0.03 && dprCap > 1) { dprCap = dprCap > 1.5 ? 1.5 : 1; resize(); } } }
   const t = now / 1000, dt = Math.min(0.05, (now - last) / 1000 || 0.016); last = now;
   const sc = SCENES[water], dTarget = daylight();
   dayCur = dayCur == null ? dTarget : dayCur + (dTarget - dayCur) * Math.min(1, dt * 1.4);
   const day = dayCur, dusk = 4 * day * (1 - day);
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  if (G) ctx.clearRect(0, 0, W, H);
+  if (!G) {
   // 물
   const g = ctx.createLinearGradient(0, 0, 0, H);
   [0, 0.45, 1].forEach((p, i) => g.addColorStop(p, mix(sc.night[i], sc.day[i], day)));
@@ -310,6 +409,7 @@ function frame(now) {
     ctx.fillStyle = dg; ctx.fillRect(0, 0, W, H);
   }
   ctx.globalCompositeOperation = 'source-over';
+  }
   // 수초
   ctx.lineCap = 'round';
   for (const wd of sc.weeds) {
@@ -340,10 +440,12 @@ function frame(now) {
   ctx.fillStyle = sg; sandPath(); ctx.fill();
   for (const p of pebbles) { ctx.fillStyle = `rgb(${p.c},${p.c + 8},${p.c + 4})`; ctx.beginPath(); ctx.ellipse(p.x * W, sandY + 8 + p.y * (H - sandY - 8), p.r * 1.4, p.r, 0, 0, 7); ctx.fill(); }
 
+  if (!G) {
   // 바닥에 일렁이는 빛 그물
   ctx.save(); sandPath(); ctx.clip(); ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = 0.1 + 0.55 * day;
   drawCaustic(caus1, t * 13, t * 4, 300, 0.42, 0, sandY - 14, W, H); ctx.globalAlpha *= 0.7; drawCaustic(caus2, -t * 9, t * 6, 390, 0.42, 0, sandY - 14, W, H);
   ctx.restore();
+  }
 
   // 먹이
   ctx.fillStyle = '#c98a4a';
@@ -370,6 +472,7 @@ function frame(now) {
     if (b.y < surfY + 2) { bubbles.splice(i, 1); continue; }
     ctx.beginPath(); ctx.arc(bx, b.y, b.r, 0, 7); ctx.fill(); ctx.stroke();
   }
+  if (!G) {
   // 수면: 물 위쪽은 수조 덮개 그늘, 경계는 찰랑이는 밝은 선
   const wave = (x) => surfY + Math.sin(x * 0.03 + t * 1.6) * 2.2 + Math.sin(x * 0.071 - t * 2.3) * 1.3;
   const hood = ctx.createLinearGradient(0, 0, 0, surfY); hood.addColorStop(0, '#050f17'); hood.addColorStop(1, mix('#0a1c28', '#2a5a6c', day));
@@ -382,21 +485,25 @@ function frame(now) {
   vg.addColorStop(0, 'rgba(0,12,28,0)'); vg.addColorStop(1, 'rgba(0,12,28,.42)'); ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
   const gr = ctx.createLinearGradient(0, 0, W, W * 0.6); gr.addColorStop(0.18, 'rgba(255,255,255,0)'); gr.addColorStop(0.26, 'rgba(255,255,255,.055)'); gr.addColorStop(0.33, 'rgba(255,255,255,.02)'); gr.addColorStop(0.4, 'rgba(255,255,255,.05)'); gr.addColorStop(0.46, 'rgba(255,255,255,0)');
   ctx.fillStyle = gr; ctx.fillRect(0, 0, W, H);
+  }
+  const hc = G ? hctx : ctx;
+  if (G) { hctx.setTransform(DPR, 0, 0, DPR, 0, 0); hctx.clearRect(0, 0, W, H); }
   // 이름표
   if (showTags) {
-    ctx.font = '600 12px -apple-system, "Apple SD Gothic Neo", sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    hc.font = '600 12px -apple-system, "Apple SD Gothic Neo", sans-serif'; hc.textAlign = 'center'; hc.textBaseline = 'middle';
     for (const f of shown) {
-      const b = bounds(f), txt = `${f.rec.name || '물고기'} ${f.rec.lengthCm}cm`, tw = ctx.measureText(txt).width + 14, ty = Math.max(70, f.y - b.ey - 14);
-      ctx.fillStyle = 'rgba(4,20,38,.6)'; ctx.beginPath(); (ctx.roundRect ? ctx.roundRect(f.x - tw / 2, ty - 10, tw, 20, 10) : ctx.rect(f.x - tw / 2, ty - 10, tw, 20)); ctx.fill();
-      ctx.fillStyle = '#eaf6ff'; ctx.fillText(txt, f.x, ty + 0.5);
+      const b = bounds(f), txt = `${f.rec.name || '물고기'} ${f.rec.lengthCm}cm`, tw = hc.measureText(txt).width + 14, ty = Math.max(70, f.y - b.ey - 14);
+      hc.fillStyle = 'rgba(4,20,38,.6)'; hc.beginPath(); (hc.roundRect ? hc.roundRect(f.x - tw / 2, ty - 10, tw, 20, 10) : hc.rect(f.x - tw / 2, ty - 10, tw, 20)); hc.fill();
+      hc.fillStyle = '#eaf6ff'; hc.fillText(txt, f.x, ty + 0.5);
     }
-    ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+    hc.textAlign = 'left'; hc.textBaseline = 'alphabetic';
   }
   // 눈금자: 실제 크기 가늠용
   const unit = pxPerCm * 10 < 26 ? 50 : 10, bl = unit * pxPerCm, by = H - 24;
-  ctx.strokeStyle = ctx.fillStyle = 'rgba(255,255,255,.75)'; ctx.lineWidth = 1.5;
-  ctx.beginPath(); ctx.moveTo(16, by - 5); ctx.lineTo(16, by); ctx.lineTo(16 + bl, by); ctx.lineTo(16 + bl, by - 5); ctx.stroke();
-  ctx.font = '12px sans-serif'; ctx.fillText(`${unit}cm`, 20 + bl, by + 2);
+  hc.strokeStyle = hc.fillStyle = 'rgba(255,255,255,.75)'; hc.lineWidth = 1.5;
+  hc.beginPath(); hc.moveTo(16, by - 5); hc.lineTo(16, by); hc.lineTo(16 + bl, by); hc.lineTo(16 + bl, by - 5); hc.stroke();
+  hc.font = '12px sans-serif'; hc.fillText(`${unit}cm`, 20 + bl, by + 2);
+  if (G) glRender(t, day, dusk, sc);
   requestAnimationFrame(frame);
 }
 
