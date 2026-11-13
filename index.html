@@ -12,6 +12,14 @@
 <link rel="apple-touch-icon" href="icons/icon-180.png">
 <link rel="icon" href="icons/icon-180.png">
 <title>내 어항</title>
+<script>
+// 카카오톡·라인 안에서 열리면 기본 브라우저(사파리)로 넘긴다: 그 안에서는 홈 화면 설치가 안 된다
+(function () {
+  var ua = navigator.userAgent, url = location.href;
+  if (/KAKAOTALK/i.test(ua)) location.href = "kakaotalk://web/openExternal?url=" + encodeURIComponent(url);
+  else if (/Line\//i.test(ua) && url.indexOf("openExternalBrowser") < 0) location.href = url + (url.indexOf("?") < 0 ? "?" : "&") + "openExternalBrowser=1";
+})();
+</script>
 <style>
   :root { --glass: rgba(8, 30, 54, .62); --line: rgba(255,255,255,.16); --txt: #eaf6ff; --sub: #a9c8e0; --accent: #38c8f0; --danger: #ff7a6b; }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -91,6 +99,10 @@
   .card b { display: block; font-size: 15px; margin-top: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .card small { color: var(--sub); font-size: 12.5px; }
 
+  #tip { position: fixed; left: 14px; right: 92px; bottom: calc(env(safe-area-inset-bottom) + 20px); z-index: 7; background: rgba(4,20,38,.86); border: 1px solid var(--line);
+    border-radius: 14px; padding: 11px 34px 11px 13px; font-size: 13.5px; line-height: 1.5; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+  #tip b { color: var(--accent); }
+  #tipClose { position: absolute; right: 6px; top: 4px; padding: 6px; color: var(--sub); font-size: 14px; }
   #toast { position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom) + 96px); transform: translateX(-50%); z-index: 20;
     background: rgba(0,0,0,.78); padding: 10px 16px; border-radius: 999px; font-size: 14px; max-width: 86%; text-align: center; }
 </style>
@@ -180,6 +192,7 @@
   <div class="grid" id="bookGrid"></div>
 </div>
 
+<div id="tip" hidden><span id="tipText"></span><button id="tipClose" aria-label="닫기">✕</button></div>
 <div id="toast" hidden></div>
 <script type="module" src="app.js"></script>
 </body>

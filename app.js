@@ -804,3 +804,17 @@ document.addEventListener('visibilitychange', keepAwake); keepAwake();
 
 // 인터넷 없이도 열리게 (홈 화면 앱)
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+
+// 설치 안내: 앱 안 브라우저(카카오톡·인스타 등)에서는 사파리로 열도록, 사파리에서는 홈 화면에 추가하도록 알려 준다
+(() => {
+  const ua = navigator.userAgent, standalone = navigator.standalone || matchMedia('(display-mode: standalone)').matches;
+  if (standalone) return;
+  const inApp = /KAKAOTALK|Instagram|FBAN|FBAV|NAVER|Line\/|DaumApps|everytimeApp|BAND/i.test(ua), ios = /iPhone|iPad|iPod/i.test(ua);
+  let msg = '';
+  if (inApp) msg = '여기서는 설치가 안 돼요. 화면의 <b>⋯ 또는 공유 버튼 → Safari(다른 브라우저)로 열기</b>를 눌러 주세요.';
+  else if (ios && LS('aq-tip', '') !== 'x') msg = '앱처럼 쓰려면 아래 <b>공유 버튼 → 홈 화면에 추가</b>를 눌러 주세요. 물고기는 설치한 뒤에 넣어야 그대로 남아요.';
+  else if (!ios && LS('aq-tip', '') !== 'x' && /Android/i.test(ua)) msg = '앱처럼 쓰려면 브라우저 <b>메뉴(⋮) → 홈 화면에 추가(앱 설치)</b>를 눌러 주세요.';
+  if (!msg) return;
+  $('tipText').innerHTML = msg; $('tip').hidden = false;
+  $('tipClose').onclick = () => { $('tip').hidden = true; if (!inApp) setLS('aq-tip', 'x'); };
+})();
