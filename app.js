@@ -104,19 +104,38 @@ const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
 const mix = (a, b, t) => { const A = hex(a), B = hex(b); return `rgb(${A.map((v, i) => Math.round(v + (B[i] - v) * t)).join(',')})`; };
 const SCENES = {
   sea: {
-    day: ['#35a9d6', '#12689f', '#072c50'], night: ['#0b2f55', '#061c38', '#020b1a'], sand: ['#b9ad84', '#4f5546'], rock: ['#687480', '#262c34'], rockX: 0.8, sway: 26,
+    day: ['#a9e4ee', '#4aa9cc', '#17608c'], night: ['#0b2f55', '#061c38', '#020b1a'], sand: ['#e6dab0', '#8d8463'], rock: ['#8e9aa2', '#3b4650'], rockX: 0.8, sway: 26,
     lumps: [{ dx: -0.1, w: 0.6, h: 0.5 }, { dx: 0.02, w: 0.8, h: 1 }, { dx: 0.13, w: 0.55, h: 0.6 }],
     weeds: Array.from({ length: 8 }, (_, i) => ({ x: (i + rand(0.2, 0.8)) / 8, h: rand(0.12, 0.3), seed: rand(0, 9), hue: rand(95, 150), w: rand(5, 10) })),
     pads: [],
   },
   fresh: {
-    day: ['#7fb894', '#2f7a63', '#123c34'], night: ['#143a34', '#0a2422', '#030e0e'], sand: ['#7d7355', '#38382a'], rock: ['#77775f', '#2c2e26'], rockX: 0.22, sway: 9,
+    day: ['#b4dcb4', '#4d9a7c', '#1a5044'], night: ['#143a34', '#0a2422', '#030e0e'], sand: ['#7d7355', '#38382a'], rock: ['#77775f', '#2c2e26'], rockX: 0.22, sway: 9,
     lumps: [{ dx: -0.07, w: 0.75, h: 0.5 }, { dx: 0.07, w: 0.5, h: 0.75 }],
     weeds: Array.from({ length: 18 }, (_, i) => ({ x: (i + rand(0.1, 0.9)) / 18, h: rand(0.2, 0.52), seed: rand(0, 9), hue: rand(65, 110), w: rand(2.5, 5) })),
     pads: Array.from({ length: 5 }, (_, i) => ({ x: (i + rand(0.2, 0.8)) / 5, r: rand(22, 40) })),
   },
 };
 const rockR = () => Math.min(W, H) * 0.2;
+let surfY = 20;
+// 물결이 만드는 빛 그물 무늬: 한 번 그려 두고 흘려보낸다 (이어 붙여도 티가 안 나게 만든다)
+function makeCaustic(seed) {
+  const N = 256, c = makeCanvas(N, N), cx = c.getContext('2d'), id = cx.createImageData(N, N), k = Math.PI * 2 / N;
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    const wx = x + 14 * Math.sin(k * y * 2 + seed), wy = y + 14 * Math.sin(k * x * 2 + seed * 1.7);
+    const s = Math.sin(k * (wx * 3 + wy) + seed) + Math.sin(k * (wy * 3 - wx * 2) + seed * 2.1) + Math.sin(k * (wx - wy * 4) + seed * 0.7);
+    const o = (y * N + x) * 4; id.data[o] = 235; id.data[o + 1] = 250; id.data[o + 2] = 255; id.data[o + 3] = Math.pow(Math.max(0, 1 - Math.abs(s) / 1.1), 5) * 255;
+  }
+  cx.putImageData(id, 0, 0); return c;
+}
+const caus1 = makeCaustic(1.3), caus2 = makeCaustic(4.1);
+function drawCaustic(tex, ox, oy, size, sy, x0, y0, x1, y1) {
+  const th = size * sy; ox = ((ox % size) + size) % size; oy = ((oy % th) + th) % th;
+  for (let y = y0 - oy; y < y1; y += th) for (let x = x0 - ox; x < x1; x += size) ctx.drawImage(tex, x, y, size + 0.5, th + 0.5);
+}
+const sandLine = (x) => sandY + Math.sin(x * 0.013) * 7 + Math.sin(x * 0.041 + 2) * 3;
+function sandPath() { ctx.beginPath(); ctx.moveTo(0, H); for (let x = 0; x <= W + 20; x += 20) ctx.lineTo(x, sandLine(x)); ctx.lineTo(W, H); }
+const motes = Array.from({ length: 40 }, () => ({ x: Math.random(), y: Math.random(), r: rand(0.5, 1.5), s: rand(0, 6), v: rand(0.004, 0.012) }));
 const bubbles = [], pellets = [], groups = new Map();
 const pebbles = Array.from({ length: 26 }, () => ({ x: Math.random(), y: rand(0.2, 0.9), r: rand(2, 7), c: rand(60, 120) }));
 
@@ -124,7 +143,7 @@ function resize() {
   DPR = Math.min(2, window.devicePixelRatio || 1);
   W = window.innerWidth; H = window.innerHeight;
   tank.width = Math.round(W * DPR); tank.height = Math.round(H * DPR);
-  sandY = H * 0.88; rescale();
+  sandY = H * 0.88; surfY = Math.max(16, $('count').getBoundingClientRect().top - 7); rescale();
   // 화면 크기가 바뀌면(폰을 돌릴 때 등) 물고기를 새 화면 안으로 불러들인다
   for (const f of shown) { f.x = clamp(f.x, 0, W); f.y = clamp(f.y, 0, sandY); f.rest = 0; retarget(f); }
   groups.clear();
@@ -264,11 +283,20 @@ function frame(now) {
   const g = ctx.createLinearGradient(0, 0, 0, H);
   [0, 0.45, 1].forEach((p, i) => g.addColorStop(p, mix(sc.night[i], sc.day[i], day)));
   ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  // 물 건너편에 흐릿하게 비치는 바위: 물이 맑아 보이게 하는 깊이감
+  for (const [al, base, amp, f1, f2, ph] of [[0.28, 0.2, 0.13, 0.009, 0.023, 1], [0.4, 0.1, 0.1, 0.014, 0.037, 3.3]]) {
+    ctx.globalAlpha = al; ctx.fillStyle = mix(sc.night[2], sc.day[2], day); ctx.beginPath(); ctx.moveTo(0, H);
+    for (let x = 0; x <= W + 16; x += 16) ctx.lineTo(x, sandY - H * base - (Math.sin(x * f1 + ph) * 0.5 + 0.5) * H * amp - (Math.sin(x * f2 + ph * 2) * 0.5 + 0.5) * H * amp * 0.4);
+    ctx.lineTo(W, H); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  const gl = ctx.createLinearGradient(0, surfY, 0, surfY + H * 0.16); gl.addColorStop(0, `rgba(235,252,255,${0.06 + 0.4 * day})`); gl.addColorStop(1, 'rgba(235,252,255,0)');
+  ctx.fillStyle = gl; ctx.fillRect(0, surfY, W, H * 0.16);
   // 햇살 (밤에는 희미한 달빛)
   ctx.globalCompositeOperation = 'lighter';
-  const rayA = 0.035 + 0.1 * day;
-  for (let i = 0; i < 6; i++) {
-    const x = W * (i / 5) + Math.sin(t * 0.21 + i * 1.7) * W * 0.09, w = W * 0.07 * (1 + 0.35 * Math.sin(t * 0.33 + i * 2.1)), sl = H * 0.28;
+  const rayA = 0.03 + 0.085 * day;
+  for (let i = 0; i < 9; i++) {
+    const x = W * (i / 8) * 1.25 + Math.sin(t * 0.21 + i * 1.7) * W * 0.09, w = W * 0.04 * (1 + 0.45 * Math.sin(t * 0.33 + i * 2.1)), sl = H * 0.28;
     const rg = ctx.createLinearGradient(0, 0, 0, H * 0.85); rg.addColorStop(0, `rgba(190,240,255,${rayA})`); rg.addColorStop(1, 'rgba(190,240,255,0)');
     ctx.fillStyle = rg; ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x + w, 0); ctx.lineTo(x + w * 2.4 - sl, H * 0.85); ctx.lineTo(x - w - sl, H * 0.85); ctx.fill();
   }
@@ -309,10 +337,13 @@ function frame(now) {
   }
   // 바닥
   const sg = ctx.createLinearGradient(0, sandY - 10, 0, H); sg.addColorStop(0, sc.sand[0]); sg.addColorStop(1, sc.sand[1]);
-  ctx.fillStyle = sg; ctx.beginPath(); ctx.moveTo(0, H);
-  for (let x = 0; x <= W + 20; x += 20) ctx.lineTo(x, sandY + Math.sin(x * 0.013) * 7 + Math.sin(x * 0.041 + 2) * 3);
-  ctx.lineTo(W, H); ctx.fill();
+  ctx.fillStyle = sg; sandPath(); ctx.fill();
   for (const p of pebbles) { ctx.fillStyle = `rgb(${p.c},${p.c + 8},${p.c + 4})`; ctx.beginPath(); ctx.ellipse(p.x * W, sandY + 8 + p.y * (H - sandY - 8), p.r * 1.4, p.r, 0, 0, 7); ctx.fill(); }
+
+  // 바닥에 일렁이는 빛 그물
+  ctx.save(); sandPath(); ctx.clip(); ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = 0.1 + 0.55 * day;
+  drawCaustic(caus1, t * 13, t * 4, 300, 0.42, 0, sandY - 14, W, H); ctx.globalAlpha *= 0.7; drawCaustic(caus2, -t * 9, t * 6, 390, 0.42, 0, sandY - 14, W, H);
+  ctx.restore();
 
   // 먹이
   ctx.fillStyle = '#c98a4a';
@@ -323,6 +354,12 @@ function frame(now) {
   }
   // 물고기
   for (const f of shown) stepFish(f, dt, t);
+  ctx.globalCompositeOperation = 'source-over'; ctx.fillStyle = '#fff';
+  for (const m of motes) {
+    m.y -= m.v * dt; if (m.y < 0) m.y = 1;
+    const mx = ((m.x + Math.sin(t * 0.3 + m.s) * 0.02 + t * 0.004) % 1) * W, my = surfY + m.y * (sandY - surfY);
+    ctx.globalAlpha = (0.12 + 0.2 * day) * (0.5 + 0.5 * Math.sin(t * 0.9 + m.s)); ctx.beginPath(); ctx.arc(mx, my, m.r, 0, 7); ctx.fill();
+  }
   ctx.globalAlpha = 1;
 
   // 공기방울
@@ -330,11 +367,21 @@ function frame(now) {
   ctx.strokeStyle = 'rgba(220,245,255,.55)'; ctx.fillStyle = 'rgba(220,245,255,.12)'; ctx.lineWidth = 1;
   for (let i = bubbles.length - 1; i >= 0; i--) {
     const b = bubbles[i]; b.y -= b.v * dt; const bx = b.x + Math.sin(t * 2 + b.s) * 4;
-    if (b.y < -10) { bubbles.splice(i, 1); continue; }
+    if (b.y < surfY + 2) { bubbles.splice(i, 1); continue; }
     ctx.beginPath(); ctx.arc(bx, b.y, b.r, 0, 7); ctx.fill(); ctx.stroke();
   }
+  // 수면: 물 위쪽은 수조 덮개 그늘, 경계는 찰랑이는 밝은 선
+  const wave = (x) => surfY + Math.sin(x * 0.03 + t * 1.6) * 2.2 + Math.sin(x * 0.071 - t * 2.3) * 1.3;
+  const hood = ctx.createLinearGradient(0, 0, 0, surfY); hood.addColorStop(0, '#050f17'); hood.addColorStop(1, mix('#0a1c28', '#2a5a6c', day));
+  ctx.fillStyle = hood; ctx.beginPath(); ctx.moveTo(0, 0); for (let x = 0; x <= W + 8; x += 8) ctx.lineTo(x, wave(x)); ctx.lineTo(W, 0); ctx.fill();
+  ctx.strokeStyle = `rgba(240,253,255,${0.35 + 0.55 * day})`; ctx.lineWidth = 1.6; ctx.beginPath(); for (let x = 0; x <= W + 8; x += 8) ctx.lineTo(x, wave(x)); ctx.stroke();
   // 밤에는 전체를 어둡게
   if (day < 0.99) { ctx.fillStyle = `rgba(2,8,26,${0.42 * (1 - day)})`; ctx.fillRect(0, 0, W, H); }
+  // 유리 수조 느낌: 가장자리 그늘과 비스듬한 유리 반사
+  const vg = ctx.createRadialGradient(W / 2, H * 0.48, Math.min(W, H) * 0.35, W / 2, H * 0.48, Math.hypot(W, H) * 0.62);
+  vg.addColorStop(0, 'rgba(0,12,28,0)'); vg.addColorStop(1, 'rgba(0,12,28,.42)'); ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
+  const gr = ctx.createLinearGradient(0, 0, W, W * 0.6); gr.addColorStop(0.18, 'rgba(255,255,255,0)'); gr.addColorStop(0.26, 'rgba(255,255,255,.055)'); gr.addColorStop(0.33, 'rgba(255,255,255,.02)'); gr.addColorStop(0.4, 'rgba(255,255,255,.05)'); gr.addColorStop(0.46, 'rgba(255,255,255,0)');
+  ctx.fillStyle = gr; ctx.fillRect(0, 0, W, H);
   // 이름표
   if (showTags) {
     ctx.font = '600 12px -apple-system, "Apple SD Gothic Neo", sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
