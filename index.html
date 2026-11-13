@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="내 어항">
+<meta name="theme-color" content="#0b3a63">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="icon" href="icons/icon-180.png">
+<title>내 어항</title>
+<style>
+  :root { --glass: rgba(8, 30, 54, .62); --line: rgba(255,255,255,.16); --txt: #eaf6ff; --sub: #a9c8e0; --accent: #38c8f0; --danger: #ff7a6b; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #06284a; color: var(--txt);
+    font-family: -apple-system, "Apple SD Gothic Neo", "Pretendard", "Malgun Gothic", sans-serif; overscroll-behavior: none; }
+  button, input, textarea { font: inherit; color: inherit; }
+  button { cursor: pointer; border: 0; background: none; }
+  [hidden] { display: none !important; }
+
+  #tank { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+
+  .top { position: fixed; left: 0; right: 0; top: 0; padding: calc(env(safe-area-inset-top) + 10px) 14px 0;
+    display: flex; justify-content: space-between; align-items: center; pointer-events: none; }
+  .pill { pointer-events: auto; background: var(--glass); border: 1px solid var(--line); border-radius: 999px;
+    padding: 8px 14px; font-size: 14px; font-weight: 600; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+  .fab { position: fixed; right: 18px; bottom: calc(env(safe-area-inset-bottom) + 18px); width: 62px; height: 62px; border-radius: 50%;
+    background: linear-gradient(160deg, #5fe0ff, #1c8fd6); color: #03243f; font-size: 34px; font-weight: 300; line-height: 1;
+    box-shadow: 0 8px 24px rgba(0,0,0,.4); }
+  .fab:active { transform: scale(.94); }
+  #empty { position: fixed; left: 0; right: 0; top: 38%; text-align: center; padding: 0 30px; pointer-events: none;
+    font-size: 17px; line-height: 1.6; text-shadow: 0 2px 8px rgba(0,0,0,.5); }
+  #empty small { display: block; color: var(--sub); font-size: 14px; margin-top: 6px; }
+
+  /* 전체 화면 패널 */
+  .panel { position: fixed; inset: 0; background: #071d33; display: flex; flex-direction: column; z-index: 10;
+    padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
+  .bar { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; gap: 8px; }
+  .bar b { font-size: 16px; }
+  .btn { padding: 10px 16px; border-radius: 12px; background: rgba(255,255,255,.1); font-weight: 600; font-size: 15px; }
+  .btn.main { background: var(--accent); color: #03243f; }
+  .btn.danger { color: var(--danger); }
+  .btn:disabled { opacity: .4; }
+  .stage { flex: 1; min-height: 0; position: relative; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+  .stage .wrap { position: relative; }
+  .stage canvas { position: absolute; left: 0; top: 0; width: 100%; height: 100%; touch-action: none; border-radius: 8px; }
+  .hint { text-align: center; color: var(--sub); font-size: 14px; padding: 8px 16px; min-height: 38px; }
+  .tools { display: flex; gap: 8px; padding: 6px 12px 12px; align-items: center; flex-wrap: wrap; justify-content: center; }
+  .tools .btn.on { background: #fff; color: #03243f; }
+  .tools input[type=range] { width: 110px; }
+  #busy { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(4,18,34,.55); font-weight: 600; }
+
+  .form { flex: 1; overflow-y: auto; padding: 4px 16px 24px; -webkit-overflow-scrolling: touch; }
+  #preview { width: 100%; height: 170px; border-radius: 14px; display: block; }
+  .row { display: flex; gap: 8px; margin: 10px 0 4px; }
+  .row .btn { flex: 1; font-size: 14px; padding: 10px 6px; }
+  label { display: block; margin-top: 14px; font-size: 13px; color: var(--sub); }
+  input[type=text], input[type=number], input[type=date], textarea { width: 100%; margin-top: 6px; padding: 12px; font-size: 16px;
+    border-radius: 12px; border: 1px solid var(--line); background: rgba(255,255,255,.07); outline: none; -webkit-appearance: none; appearance: none; }
+  input:focus, textarea:focus { border-color: var(--accent); }
+  textarea { resize: none; height: 70px; }
+  .two { display: flex; gap: 10px; } .two > label { flex: 1; min-width: 0; }
+  .note { font-size: 12.5px; color: var(--sub); margin-top: 6px; line-height: 1.5; }
+
+  /* 아래에서 올라오는 정보 카드 */
+  #sheetBg { position: fixed; inset: 0; background: rgba(2,10,20,.5); z-index: 8; }
+  #sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 9; max-height: 88%; overflow-y: auto; background: #0a2640;
+    border-radius: 22px 22px 0 0; padding: 14px 16px calc(env(safe-area-inset-bottom) + 18px); border-top: 1px solid var(--line);
+    -webkit-overflow-scrolling: touch; }
+  #sPhoto { width: 100%; max-height: 38vh; object-fit: contain; border-radius: 14px; background: #04182b; display: block; }
+  #sTitle { font-size: 22px; font-weight: 700; margin: 12px 0 2px; }
+  .facts { margin: 8px 0 4px; font-size: 16px; line-height: 1.9; }
+  .facts span { color: var(--sub); display: inline-block; width: 64px; }
+  .facts a { color: var(--accent); margin-left: 8px; font-size: 14px; }
+  #sMemo { color: var(--sub); white-space: pre-wrap; font-size: 15px; }
+
+  .grid { flex: 1; overflow-y: auto; padding: 4px 12px 20px; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; align-content: start; }
+  .card { background: rgba(255,255,255,.07); border: 1px solid var(--line); border-radius: 14px; padding: 10px; text-align: left; }
+  .card img { width: 100%; height: 70px; object-fit: contain; }
+  .card b { display: block; font-size: 15px; margin-top: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .card small { color: var(--sub); font-size: 12.5px; }
+
+  #toast { position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom) + 96px); transform: translateX(-50%); z-index: 20;
+    background: rgba(0,0,0,.78); padding: 10px 16px; border-radius: 999px; font-size: 14px; max-width: 86%; text-align: center; }
+</style>
+</head>
+<body>
+<canvas id="tank"></canvas>
+
+<div class="top">
+  <div class="pill" id="count">내 어항</div>
+  <button class="pill" id="bookBtn">도감</button>
+</div>
+<div id="empty" hidden>아직 물고기가 없어요<small>아래 + 버튼으로 잡은 물고기 사진을 넣어 보세요</small></div>
+<button class="fab" id="addBtn" aria-label="물고기 추가">+</button>
+<input type="file" id="file" accept="image/*" hidden>
+
+<!-- 1단계: 물고기 오려내기 -->
+<div class="panel" id="cut" hidden>
+  <div class="bar"><button class="btn" id="cutCancel">취소</button><b>물고기 고르기</b><button class="btn main" id="cutNext" disabled>다음</button></div>
+  <div class="stage" id="stage">
+    <div class="wrap" id="wrap"><canvas id="cPhoto"></canvas><canvas id="cMask"></canvas></div>
+    <div id="busy" hidden>물고기를 찾는 중…</div>
+  </div>
+  <div class="hint" id="cutHint"></div>
+  <div class="tools">
+    <button class="btn on" data-mode="select">고르기</button>
+    <button class="btn" data-mode="erase">지우기</button>
+    <button class="btn" data-mode="restore">되살리기</button>
+    <input type="range" id="brush" min="6" max="60" value="22" aria-label="붓 크기">
+  </div>
+</div>
+
+<!-- 2단계: 정보 입력 -->
+<div class="panel" id="info" hidden>
+  <div class="bar"><button class="btn" id="infoBack">뒤로</button><b>물고기 정보</b><button class="btn main" id="infoSave">어항에 넣기</button></div>
+  <div class="form">
+    <canvas id="preview"></canvas>
+    <div class="note">머리가 ← 왼쪽을 보고, 등이 위로 가면 맞아요. 다르면 아래 버튼으로 맞춰 주세요.</div>
+    <div class="row"><button class="btn" id="flipH">↔ 머리 방향 바꾸기</button><button class="btn" id="flipV">↕ 위아래 뒤집기</button></div>
+    <div class="two">
+      <label>어종 / 이름<input type="text" id="fName" placeholder="예: 감성돔" maxlength="20"></label>
+      <label>길이 (cm)<input type="number" id="fLen" inputmode="decimal" placeholder="예: 35" min="1" max="500" step="0.1"></label>
+    </div>
+    <label>잡은 날짜<input type="date" id="fDate"></label>
+    <label>잡은 곳<input type="text" id="fPlace" placeholder="사진에 위치가 있으면 자동으로 채워져요" maxlength="40"></label>
+    <div class="note" id="fMeta"></div>
+    <label>메모<textarea id="fMemo" placeholder="채비, 물때, 날씨 등" maxlength="300"></textarea></label>
+  </div>
+</div>
+
+<!-- 물고기 정보 카드 -->
+<div id="sheetBg" hidden></div>
+<div id="sheet" hidden>
+  <div id="sView">
+    <img id="sPhoto" alt="">
+    <div id="sTitle"></div>
+    <div class="facts" id="sFacts"></div>
+    <div id="sMemo"></div>
+    <div class="row"><button class="btn" id="sEdit">수정</button><button class="btn danger" id="sDel">어항에서 빼기</button><button class="btn main" id="sClose">닫기</button></div>
+  </div>
+  <div id="sForm" hidden>
+    <div class="two">
+      <label>어종 / 이름<input type="text" id="eName" maxlength="20"></label>
+      <label>길이 (cm)<input type="number" id="eLen" inputmode="decimal" min="1" max="500" step="0.1"></label>
+    </div>
+    <label>잡은 날짜<input type="date" id="eDate"></label>
+    <label>잡은 곳<input type="text" id="ePlace" maxlength="40"></label>
+    <label>메모<textarea id="eMemo" maxlength="300"></textarea></label>
+    <div class="row"><button class="btn" id="eCancel">취소</button><button class="btn main" id="eSave">저장</button></div>
+  </div>
+</div>
+
+<!-- 도감 -->
+<div class="panel" id="book" hidden>
+  <div class="bar"><button class="btn" id="bookClose">닫기</button><b>도감</b><span style="width:60px"></span></div>
+  <div class="grid" id="bookGrid"></div>
+</div>
+
+<div id="toast" hidden></div>
+<script type="module" src="app.js"></script>
+</body>
+</html>
