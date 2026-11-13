@@ -1,6 +1,6 @@
 // 인터넷 없이도 앱이 열리게 파일을 폰에 보관한다
 const CACHE = 'aquarium-v1';
-const SHELL = ['./', 'index.html', 'app.js', 'manifest.webmanifest', 'icons/icon-180.png', 'icons/icon-512.png'];
+const SHELL = ['./', 'index.html', 'app.js', 'manifest.webmanifest', 'icons/icon-180.png', 'icons/icon-512.png', 'icons/logo.png'];
 const HEAVY = ['vendor/vision_bundle.mjs', 'vendor/wasm/vision_wasm_internal.js', 'vendor/wasm/vision_wasm_internal.wasm', 'vendor/magic_touch.tflite'];
 
 self.addEventListener('install', (e) => {

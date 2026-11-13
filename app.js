@@ -125,6 +125,9 @@ function resize() {
   W = window.innerWidth; H = window.innerHeight;
   tank.width = Math.round(W * DPR); tank.height = Math.round(H * DPR);
   sandY = H * 0.88; rescale();
+  // 화면 크기가 바뀌면(폰을 돌릴 때 등) 물고기를 새 화면 안으로 불러들인다
+  for (const f of shown) { f.x = clamp(f.x, 0, W); f.y = clamp(f.y, 0, sandY); f.rest = 0; retarget(f); }
+  groups.clear();
 }
 function rescale() {
   // 어항 가로가 실제로 몇 cm인지: 가장 큰 물고기가 여유 있게 들어가도록

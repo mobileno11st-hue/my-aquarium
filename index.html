@@ -31,6 +31,8 @@
   .seg button { padding: 5px 13px; border-radius: 999px; font-size: 14px; font-weight: 600; }
   .seg button.on, .pill.sm.on { background: #fff; color: #03243f; }
   .top2 { position: fixed; right: 14px; top: calc(env(safe-area-inset-top) + 58px); display: flex; flex-direction: column; gap: 8px; align-items: flex-end; }
+  #logo { position: fixed; left: 16px; top: calc(env(safe-area-inset-top) + 60px); width: min(46vw, 230px); opacity: .9; pointer-events: none;
+    filter: drop-shadow(0 2px 6px rgba(0,20,50,.55)); }
   .pill.sm { font-size: 12.5px; padding: 6px 11px; }
   select option { color: #03243f; }
   .fab { position: fixed; right: 18px; bottom: calc(env(safe-area-inset-bottom) + 18px); width: 62px; height: 62px; border-radius: 50%;
@@ -102,6 +104,7 @@
   <button class="pill" id="bookBtn">도감</button>
 </div>
 <div class="top2"><button class="pill sm" id="tagBtn">이름표</button><button class="pill sm" id="timeBtn">시간: 자동</button></div>
+<img id="logo" src="icons/logo.png" alt="RealFishing 진짜낚시 리얼피싱">
 <div id="empty" hidden>아직 물고기가 없어요<small>아래 + 버튼으로 잡은 물고기 사진을 넣어 보세요</small></div>
 <button class="fab" id="addBtn" aria-label="물고기 추가">+</button>
 <input type="file" id="file" accept="image/*" hidden>
