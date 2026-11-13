@@ -90,7 +90,7 @@ const setLS = (k, v) => { try { localStorage.setItem(k, v); } catch { /* 저장 
 let yearSel = LS('aq-year', 'all');   // 'all' | '2025' 같은 연도 | 'none'(날짜 없음)
 const yearOf = (rec) => (/^\d{4}/.exec(rec.date || '') || ['none'])[0];
 const yearName = (y) => (y === 'all' ? '전체' : y === 'none' ? '날짜 없음' : `${y}년`);
-let water = LS('aq-water', 'sea'), showTags = LS('aq-tags', '0') === '1', timeMode = LS('aq-time', 'auto'), dayCur = null;
+let water = LS('aq-water', 'sea'), showTags = LS('aq-tags', '0') === '1', timeMode = LS('aq-time', 'day'), dayCur = null;
 
 // 어종 이름으로 헤엄 방식·사는 물을 미리 골라 준다 (입력 화면에서 언제든 바꿀 수 있음)
 const STYLE_GUESS = [
