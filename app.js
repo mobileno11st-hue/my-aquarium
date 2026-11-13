@@ -819,9 +819,28 @@ if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catc
   const inApp = /KAKAOTALK|Instagram|FBAN|FBAV|NAVER|Line\/|DaumApps|everytimeApp|BAND/i.test(ua), ios = /iPhone|iPad|iPod/i.test(ua);
   let msg = '';
   if (inApp) msg = '여기서는 설치가 안 돼요. 화면의 <b>⋯ 또는 공유 버튼 → Safari(다른 브라우저)로 열기</b>를 눌러 주세요.';
-  else if (ios && LS('aq-tip', '') !== 'x') msg = '앱처럼 쓰려면 아래 <b>공유 버튼 → 홈 화면에 추가</b>를 눌러 주세요. 물고기는 설치한 뒤에 넣어야 그대로 남아요.';
-  else if (!ios && LS('aq-tip', '') !== 'x' && /Android/i.test(ua)) msg = '앱처럼 쓰려면 브라우저 <b>메뉴(⋮) → 홈 화면에 추가(앱 설치)</b>를 눌러 주세요.';
   if (!msg) return;
   $('tipText').innerHTML = msg; $('tip').hidden = false;
   $('tipClose').onclick = () => { $('tip').hidden = true; if (!inApp) setLS('aq-tip', 'x'); };
+})();
+
+// ───────────────────────── 사용 설명서: 처음 들어오면 한 번 보여 주고, '사용법' 버튼으로 다시 본다
+(() => {
+  const pages = $('gPages'), n = pages.children.length, dots = $('gDots');
+  dots.innerHTML = '<i></i>'.repeat(n);
+  const cur = () => Math.round(pages.scrollLeft / Math.max(1, pages.clientWidth));
+  const sync = () => { const c = cur(); [...dots.children].forEach((d, i) => d.classList.toggle('on', i === c)); $('gNext').textContent = c === n - 1 ? '시작하기' : '다음'; };
+  pages.addEventListener('scroll', sync, { passive: true });
+  const close = () => { $('guide').hidden = true; setLS('aq-guide', '1'); };
+  $('gNext').onclick = () => { const c = cur(); if (c >= n - 1) close(); else pages.scrollTo({ left: (c + 1) * pages.clientWidth, behavior: 'smooth' }); };
+  $('gClose').onclick = close;
+  const setOs = (os) => {
+    document.querySelectorAll('#gOs button').forEach((b) => b.classList.toggle('on', b.dataset.os === os));
+    document.querySelectorAll('.gsteps[data-os]').forEach((o) => (o.hidden = o.dataset.os !== os));
+  };
+  document.querySelectorAll('#gOs button').forEach((b) => (b.onclick = () => setOs(b.dataset.os)));
+  setOs(/Android/i.test(navigator.userAgent) ? 'and' : 'ios');
+  const open = () => { $('guide').hidden = false; pages.scrollLeft = 0; sync(); };
+  $('helpBtn').onclick = open;
+  if (LS('aq-guide', '') !== '1' || location.hash === '#guide') open();
 })();

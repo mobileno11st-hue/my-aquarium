@@ -1,6 +1,6 @@
 {
-  "name": "내 어항",
-  "short_name": "내 어항",
+  "name": "리얼피싱",
+  "short_name": "리얼피싱",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
