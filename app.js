@@ -981,13 +981,6 @@ resize(); requestAnimationFrame(frame);
     for (const rec of all) addFish(rec, await loadImg(rec.cutout), false);
   } catch (err) { console.error(err); toast('저장된 물고기를 불러오지 못했어요'); }
   refreshShown();
-  // 옛 주소로 들어온 경우: 어항이 비어 있으면 새 주소로 바로 넘기고, 물고기가 있으면 안내만 띄운다 (기록을 잃지 않게)
-  if (location.hostname === 'mobileno11st-hue.github.io') {
-    const NEW = 'https://realfishing.github.io/';
-    if (!fishes.length) return location.replace(NEW);
-    $('tipText').innerHTML = `주소가 <b>realfishing.github.io</b>로 바뀌었어요. 여기 넣은 물고기는 이 주소에서만 보여요. <a href="${NEW}" style="color:#38c8f0">새 주소로 가기</a>`;
-    $('tip').hidden = false; $('tipClose').onclick = () => ($('tip').hidden = true);
-  }
   navigator.storage?.persist?.();                         // 폰이 기록을 멋대로 지우지 않게 요청
 })();
 
