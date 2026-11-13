@@ -216,10 +216,14 @@ function refreshShown() {
   $('count').textContent = shown.length ? `${wn} · ${shown.length}마리` : `${wn} 어항`;
   document.querySelectorAll('#seg button').forEach((b) => b.classList.toggle('on', b.dataset.w === water));
   $('tagBtn').classList.toggle('on', showTags);
-  $('timeBtn').textContent = `시간: ${{ auto: '자동', day: '낮', night: '밤' }[timeMode]}`;
+  $('timeVal').textContent = { auto: '자동', day: '낮', night: '밤' }[timeMode];
 }
 function setWater(w) { if (w === water) return; water = w; decoSel = null; syncDecoCtl(); setLS('aq-water', w); pellets.length = 0; bubbles.length = 0; refreshShown(); placeAll(); }
 document.querySelectorAll('#seg button').forEach((b) => (b.onclick = () => setWater(b.dataset.w)));
+// 햄버거 메뉴: 도감·꾸미기·사용법은 누르면 닫히고, 이름표·시간은 열린 채로 바뀐다
+$('menuBtn').onclick = () => ($('menu').hidden = !$('menu').hidden);
+$('menu').addEventListener('click', (e) => { if (e.target.closest('#bookBtn, #decoBtn, #helpBtn')) $('menu').hidden = true; });
+tank.addEventListener('pointerdown', () => ($('menu').hidden = true));
 $('tagBtn').onclick = () => { showTags = !showTags; setLS('aq-tags', showTags ? '1' : '0'); refreshShown(); };
 $('timeBtn').onclick = () => { timeMode = { auto: 'day', day: 'night', night: 'auto' }[timeMode]; setLS('aq-time', timeMode); refreshShown(); };
 
