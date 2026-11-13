@@ -87,6 +87,9 @@ let W = 0, H = 0, DPR = 1, sandY = 0, pxPerCm = 4;
 const fishes = []; let shown = [];
 const LS = (k, d) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } };
 const setLS = (k, v) => { try { localStorage.setItem(k, v); } catch { /* 저장 안 돼도 동작 */ } };
+let yearSel = LS('aq-year', 'all');   // 'all' | '2025' 같은 연도 | 'none'(날짜 없음)
+const yearOf = (rec) => (/^\d{4}/.exec(rec.date || '') || ['none'])[0];
+const yearName = (y) => (y === 'all' ? '전체' : y === 'none' ? '날짜 없음' : `${y}년`);
 let water = LS('aq-water', 'sea'), showTags = LS('aq-tags', '0') === '1', timeMode = LS('aq-time', 'auto'), dayCur = null;
 
 // 어종 이름으로 헤엄 방식·사는 물을 미리 골라 준다 (입력 화면에서 언제든 바꿀 수 있음)
@@ -197,7 +200,7 @@ function addFish(rec, img, fresh) {
   rec.style ||= guessStyle(rec.name); rec.water ||= guessWater(rec.name);
   const f = { rec, img, x: 0, y: 0, dir: 1, face: 1, vy: 0, go: 1, rest: 0, phase: rand(0, 6), depth: Math.random(), ox: rand(-1, 1), oy: rand(-0.5, 0.5) };
   fishes.push(f); fishes.sort((a, b) => a.depth - b.depth);
-  if (fresh) water = rec.water;
+  if (fresh) { water = rec.water; if (yearSel !== 'all') yearSel = yearOf(rec); }
   refreshShown();
   if (rec.water !== water) return;
   f.x = rand(W * 0.15, W * 0.85); f.y = rand(H * 0.2, sandY - 30);
@@ -209,19 +212,37 @@ function addFish(rec, img, fresh) {
 }
 function placeAll() { for (const f of shown) { f.x = rand(W * 0.15, W * 0.85); f.y = rand(H * 0.2, sandY - 30); f.rest = 0; retarget(f); if (f.rec.style === 'bottom') f.y = f.ty; } }
 function refreshShown() {
-  shown = fishes.filter((f) => f.rec.water === water); rescale();
-  const wn = water === 'sea' ? '바다' : '민물';
+  if (yearSel !== 'all' && fishes.length && !fishes.some((f) => yearOf(f.rec) === yearSel)) yearSel = 'all';   // 그 해 물고기가 다 빠졌으면 전체로
+  shown = fishes.filter((f) => f.rec.water === water && (yearSel === 'all' || yearOf(f.rec) === yearSel)); rescale();
+  const wn = water === 'sea' ? '바다' : '민물', yn = yearSel === 'all' ? '' : yearName(yearSel) + ' ';
   $('empty').hidden = shown.length > 0;
-  $('empty').firstChild.textContent = fishes.length ? `${wn} 어항에는 아직 물고기가 없어요` : '아직 물고기가 없어요';
-  $('count').textContent = shown.length ? `${wn} · ${shown.length}마리` : `${wn} 어항`;
+  $('empty').firstChild.textContent = fishes.length ? `${yn}${wn} 어항에는 아직 물고기가 없어요` : '아직 물고기가 없어요';
+  $('countText').textContent = `${yearName(yearSel)} · ${shown.length}마리`;
   document.querySelectorAll('#seg button').forEach((b) => b.classList.toggle('on', b.dataset.w === water));
   $('tagBtn').classList.toggle('on', showTags);
   $('timeVal').textContent = { auto: '자동', day: '낮', night: '밤' }[timeMode];
 }
 function setWater(w) { if (w === water) return; water = w; decoSel = null; syncDecoCtl(); setLS('aq-water', w); pellets.length = 0; bubbles.length = 0; refreshShown(); placeAll(); }
 document.querySelectorAll('#seg button').forEach((b) => (b.onclick = () => setWater(b.dataset.w)));
+// 연도별 어항: 왼쪽 위 칸을 누르면 연도를 고른다
+function setYear(y) { yearSel = y; setLS('aq-year', y); pellets.length = 0; refreshShown(); placeAll(); }
+$('count').onclick = () => {
+  const m = $('yearMenu'); $('menu').hidden = true;
+  if (!m.hidden) return (m.hidden = true);
+  const here = fishes.filter((f) => f.rec.water === water), cnt = {};
+  for (const f of here) cnt[yearOf(f.rec)] = (cnt[yearOf(f.rec)] || 0) + 1;
+  const ys = Object.keys(cnt).filter((y) => y !== 'none').sort().reverse(); if (cnt.none) ys.push('none');
+  m.innerHTML = '';
+  for (const y of ['all', ...ys]) {
+    const b = document.createElement('button'); b.className = y === yearSel ? 'on' : '';
+    const s = document.createElement('span'); s.textContent = yearName(y); const e = document.createElement('em'); e.textContent = `${y === 'all' ? here.length : cnt[y]}마리`;
+    b.append(s, e); b.onclick = () => { m.hidden = true; setYear(y); }; m.append(b);
+  }
+  m.hidden = false;
+};
+tank.addEventListener('pointerdown', () => ($('yearMenu').hidden = true));
 // 햄버거 메뉴: 도감·꾸미기·사용법은 누르면 닫히고, 이름표·시간은 열린 채로 바뀐다
-$('menuBtn').onclick = () => ($('menu').hidden = !$('menu').hidden);
+$('menuBtn').onclick = () => { $('yearMenu').hidden = true; $('menu').hidden = !$('menu').hidden; };
 $('menu').addEventListener('click', (e) => { if (e.target.closest('#bookBtn, #decoBtn, #helpBtn')) $('menu').hidden = true; });
 tank.addEventListener('pointerdown', () => ($('menu').hidden = true));
 $('tagBtn').onclick = () => { showTags = !showTags; setLS('aq-tags', showTags ? '1' : '0'); refreshShown(); };
@@ -749,12 +770,14 @@ $('sDel').onclick = async () => {
 $('bookBtn').onclick = () => {
   const g = $('bookGrid'); g.innerHTML = '';
   if (!fishes.length) g.innerHTML = '<div class="note" style="grid-column:1/-1;text-align:center;margin-top:40px">아직 기록이 없어요</div>';
+  let bookYear = null;
   [...fishes].sort((a, b) => (b.rec.date || '').localeCompare(a.rec.date || '')).forEach((f) => {
+    if (yearOf(f.rec) !== bookYear) { bookYear = yearOf(f.rec); const hd = document.createElement('div'); hd.className = 'byear'; hd.textContent = yearName(bookYear); g.append(hd); }
     const b = document.createElement('button'); b.className = 'card';
     const img = document.createElement('img'); img.src = f.img.src; b.append(img);
     const n = document.createElement('b'); n.textContent = `${f.rec.name || '물고기'} · ${f.rec.lengthCm}cm`; b.append(n);
     const s = document.createElement('small'); s.textContent = [dateText(f.rec.date), f.rec.place].filter(Boolean).join(' · ') || '기록 없음'; b.append(s);
-    b.onclick = () => { $('book').hidden = true; setWater(f.rec.water); openSheet(f); }; g.append(b);
+    b.onclick = () => { $('book').hidden = true; if (yearSel !== 'all' && yearOf(f.rec) !== yearSel) setYear(yearOf(f.rec)); setWater(f.rec.water); openSheet(f); }; g.append(b);
   });
   $('book').hidden = false;
 };

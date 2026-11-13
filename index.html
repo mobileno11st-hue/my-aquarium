@@ -177,16 +177,27 @@
   #menu span { flex: 1; }
   #menu em { font-style: normal; font-size: 13px; font-weight: 600; color: var(--sub); }
   #tagBtn em::after { content: '꺼짐'; } #tagBtn.on em::after { content: '켜짐'; color: var(--accent); }
+
+  /* 연도별 어항 */
+  #count { display: flex; align-items: center; gap: 4px; padding-right: 9px; }
+  #count svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; opacity: .8; }
+  #yearMenu { left: 12px; right: auto; top: calc(env(safe-area-inset-top) + 56px); gap: 0; align-items: stretch; min-width: 180px; max-height: 60vh; overflow-y: auto; padding: 6px; z-index: 5;
+    background: rgba(6,24,42,.88); border: 1px solid var(--line); border-radius: 18px; backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); box-shadow: 0 12px 34px rgba(0,0,0,.4); }
+  #yearMenu button { display: flex; align-items: center; gap: 12px; padding: 12px 12px; border-radius: 12px; font-size: 15.5px; font-weight: 600; text-align: left; }
+  #yearMenu button.on { background: rgba(56,200,240,.16); }
+  #yearMenu span { flex: 1; } #yearMenu em { font-style: normal; font-size: 13px; color: var(--sub); }
+  .byear { grid-column: 1 / -1; font-size: 14px; font-weight: 700; color: var(--accent); padding: 8px 4px 0; }
 </style>
 </head>
 <body>
 <canvas id="tank"></canvas>
 
 <div class="top">
-  <div class="pill" id="count">내 어항</div>
+  <button class="pill" id="count"><span id="countText">전체</span><svg viewBox="0 0 24 24"><path d="M7 10l5 5 5-5"/></svg></button>
   <div class="pill seg" id="seg"><button data-w="sea">바다</button><button data-w="fresh">민물</button></div>
   <button class="pill" id="menuBtn" aria-label="메뉴"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
 </div>
+<div class="top2" id="yearMenu" hidden></div>
 <div class="top2" id="menu" hidden>
   <button id="bookBtn"><svg viewBox="0 0 24 24"><path d="M5 4.5h11a3 3 0 0 1 3 3v12H8a3 3 0 0 1-3-3zM5 16.5a3 3 0 0 1 3-3h11"/></svg><span>도감</span></button>
   <button id="decoBtn"><svg viewBox="0 0 24 24"><path d="M12 21V11M12 13c-4 0-6-3-6-7 4 0 6 3 6 7zM12 16c4 0 6-3 6-7-4 0-6 3-6 7z"/></svg><span>꾸미기</span></button>
