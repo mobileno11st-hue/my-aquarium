@@ -84,9 +84,40 @@ function dateText(d) { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(d || ''); retur
 // ───────────────────────── 어항
 const tank = $('tank'), ctx = tank.getContext('2d');
 let W = 0, H = 0, DPR = 1, sandY = 0, pxPerCm = 4;
-const fishes = [];
-const weeds = Array.from({ length: 9 }, (_, i) => ({ x: (i + rand(0.2, 0.8)) / 9, h: rand(0.12, 0.3), seed: rand(0, 9), hue: rand(95, 150), w: rand(5, 10) }));
-const bubbles = [];
+const fishes = []; let shown = [];
+const LS = (k, d) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } };
+const setLS = (k, v) => { try { localStorage.setItem(k, v); } catch { /* 저장 안 돼도 동작 */ } };
+let water = LS('aq-water', 'sea'), showTags = LS('aq-tags', '0') === '1', timeMode = LS('aq-time', 'auto'), dayCur = null;
+
+// 어종 이름으로 헤엄 방식·사는 물을 미리 골라 준다 (입력 화면에서 언제든 바꿀 수 있음)
+const STYLE_GUESS = [
+  [/광어|넙치|가자미|도다리|가오리|홍어|양태|아귀|서대|박대|망둑|망둥|메기|동자개|빠가|장어|성대/, 'bottom'],
+  [/갈치/, 'upright'],
+  [/전갱이|고등어|방어|부시리|삼치|학꽁치|학공치|숭어|전어|멸치|청어|정어리|벤자리|피라미|갈겨니|은어|빙어|블루길|강준치|끄리|만새기|참치|다랑어/, 'school'],
+  [/우럭|볼락|쏘가리|능성어|노래미|놀래미|쏨뱅이|붉바리|다금바리|자바리|돌돔|강담돔|혹돔|꺽지|열기|용치/, 'rock'],
+];
+const FRESH_GUESS = /붕어|잉어|배스|쏘가리|가물치|메기|송어|블루길|강준치|누치|끄리|피라미|갈겨니|은어|빙어|꺽지|동자개|빠가|향어|산천어|민물|초어|백연|마자|모래무지|버들치|뱀장어/;
+const guessStyle = (name) => (STYLE_GUESS.find(([re]) => re.test(name || '')) || [0, 'normal'])[1];
+const guessWater = (name) => (FRESH_GUESS.test(name || '') ? 'fresh' : 'sea');
+
+const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+const mix = (a, b, t) => { const A = hex(a), B = hex(b); return `rgb(${A.map((v, i) => Math.round(v + (B[i] - v) * t)).join(',')})`; };
+const SCENES = {
+  sea: {
+    day: ['#35a9d6', '#12689f', '#072c50'], night: ['#0b2f55', '#061c38', '#020b1a'], sand: ['#b9ad84', '#4f5546'], rock: ['#687480', '#262c34'], rockX: 0.8, sway: 26,
+    lumps: [{ dx: -0.1, w: 0.6, h: 0.5 }, { dx: 0.02, w: 0.8, h: 1 }, { dx: 0.13, w: 0.55, h: 0.6 }],
+    weeds: Array.from({ length: 8 }, (_, i) => ({ x: (i + rand(0.2, 0.8)) / 8, h: rand(0.12, 0.3), seed: rand(0, 9), hue: rand(95, 150), w: rand(5, 10) })),
+    pads: [],
+  },
+  fresh: {
+    day: ['#7fb894', '#2f7a63', '#123c34'], night: ['#143a34', '#0a2422', '#030e0e'], sand: ['#7d7355', '#38382a'], rock: ['#77775f', '#2c2e26'], rockX: 0.22, sway: 9,
+    lumps: [{ dx: -0.07, w: 0.75, h: 0.5 }, { dx: 0.07, w: 0.5, h: 0.75 }],
+    weeds: Array.from({ length: 18 }, (_, i) => ({ x: (i + rand(0.1, 0.9)) / 18, h: rand(0.2, 0.52), seed: rand(0, 9), hue: rand(65, 110), w: rand(2.5, 5) })),
+    pads: Array.from({ length: 5 }, (_, i) => ({ x: (i + rand(0.2, 0.8)) / 5, r: rand(22, 40) })),
+  },
+};
+const rockR = () => Math.min(W, H) * 0.2;
+const bubbles = [], pellets = [], groups = new Map();
 const pebbles = Array.from({ length: 26 }, () => ({ x: Math.random(), y: rand(0.2, 0.9), r: rand(2, 7), c: rand(60, 120) }));
 
 function resize() {
@@ -97,21 +128,23 @@ function resize() {
 }
 function rescale() {
   // 어항 가로가 실제로 몇 cm인지: 가장 큰 물고기가 여유 있게 들어가도록
-  const maxLen = fishes.reduce((m, f) => Math.max(m, f.rec.lengthCm), 0);
+  const maxLen = shown.reduce((m, f) => Math.max(m, f.rec.lengthCm), 0);
   const viewCm = Math.max(90, maxLen * 2.4) * Math.max(1, (W / H) * 0.75);
   pxPerCm = W / viewCm;
 }
 addEventListener('resize', resize);
 
 // 물고기 한 마리 그리기: 세로 조각으로 잘라 꼬리 쪽일수록 크게 물결치게 한다 (그림은 머리가 왼쪽)
-function drawFish(c, img, x, y, L, face, tilt, phase) {
+function drawFish(c, img, x, y, L, face, tilt, phase, up = false, amp = 1) {
   const iw = img.width, ih = img.height, s = L / iw, hh = ih * s;
   const N = clamp(Math.round(L / 5), 14, 44), dw = L / N, sw = iw / N;
-  let sx = -face; if (Math.abs(sx) < 0.06) sx = sx < 0 ? -0.06 : 0.06;
-  c.save(); c.translate(x, y); c.rotate(tilt * Math.sign(face || 1)); c.scale(sx, 1);
+  let fs = face; if (Math.abs(fs) < 0.06) fs = fs < 0 ? -0.06 : 0.06;
+  c.save(); c.translate(x, y);
+  if (up) { c.rotate(Math.PI / 2 + tilt); c.scale(1, fs); }          // 갈치처럼 머리를 위로 세운 자세
+  else { c.rotate(tilt * Math.sign(face || 1)); c.scale(-fs, 1); }
   for (let i = 0; i < N; i++) {
     const t = (i + 0.5) / N, env = 0.1 + 0.9 * t * t;
-    const off = Math.sin(phase - t * 5.2) * env * L * 0.042;
+    const off = Math.sin(phase - t * 5.2) * env * L * 0.042 * amp;
     c.drawImage(img, i * sw, 0, sw, ih, -L / 2 + i * dw, -hh / 2 + off, dw + 0.8, hh);
   }
   c.restore();
@@ -119,83 +152,195 @@ function drawFish(c, img, x, y, L, face, tilt, phase) {
 
 const fishL = (f) => f.rec.lengthCm * pxPerCm * (0.88 + 0.12 * f.depth);
 const fishH = (f) => fishL(f) * f.img.height / f.img.width;
+function bounds(f) {
+  const up = f.rec.style === 'upright', L = fishL(f), hh = fishH(f), ex = up ? hh / 2 : L / 2, ey = up ? L / 2 : hh / 2;
+  const m = Math.min(W / 2, ex + 8), top = Math.min(H * 0.14 + ey, H * 0.4), bot = Math.max(top + 10, sandY - ey - 6);
+  return { up, L, hh, ex, ey, m, top, bot };
+}
 function retarget(f) {
-  const L = fishL(f), m = Math.min(W / 2, L / 2 + 8), top = Math.min(H * 0.14 + fishH(f) / 2, H * 0.4), bot = Math.max(top + 10, sandY - fishH(f) / 2 - 6);
-  f.tx = rand(m, W - m); f.ty = rand(top, bot); f.timer = rand(5, 12); f.cruise = rand(0.28, 0.6);
+  const b = bounds(f), st = f.rec.style;
+  f.timer = rand(5, 12); f.cruise = rand(0.28, 0.6); f.rest = 0;
+  f.tx = rand(b.m, W - b.m); f.ty = rand(b.top, b.bot);
+  if (st === 'bottom') {                     // 바닥에 붙어 짧게 옮겨 다닌다
+    f.ty = sandY - b.ey * 0.45 + rand(0, 5); f.cruise = rand(0.2, 0.35);
+    if (Math.abs(f.tx - f.x) > W * 0.45) f.tx = f.x + Math.sign(f.tx - f.x) * W * 0.4;
+  } else if (st === 'rock') {                // 바위 둘레를 맴돈다
+    const R = rockR();
+    f.tx = clamp(SCENES[water].rockX * W + rand(-1.15, 1.15) * R, b.m, W - b.m);
+    f.ty = clamp(rand(sandY - R * 1.5, sandY - b.ey - 4), b.top, b.bot); f.cruise = rand(0.15, 0.3);
+  } else if (st === 'school') f.cruise = rand(0.6, 0.9);
+  else if (st === 'upright') f.cruise = rand(0.08, 0.16);
 }
 function addFish(rec, img, fresh) {
-  const f = { rec, img, x: 0, y: 0, dir: 1, face: 1, vy: 0, phase: rand(0, 6), depth: Math.random() };
-  fishes.push(f); rescale();
-  if (fresh) { f.x = W / 2; f.y = -fishH(f); }           // 새로 넣은 물고기는 위에서 퐁당
-  else { f.x = rand(W * 0.15, W * 0.85); f.y = rand(H * 0.2, sandY - 30); }
-  f.dir = f.face = Math.random() < 0.5 ? 1 : -1;
-  retarget(f); if (fresh) { f.ty = H * 0.45; for (let i = 0; i < 14; i++) bubbles.push({ x: W / 2 + rand(-40, 40), y: rand(0, 60), r: rand(2, 6), v: rand(30, 70), s: rand(0, 6) }); }
-  fishes.sort((a, b) => a.depth - b.depth);
-  refreshHud();
+  rec.style ||= guessStyle(rec.name); rec.water ||= guessWater(rec.name);
+  const f = { rec, img, x: 0, y: 0, dir: 1, face: 1, vy: 0, go: 1, rest: 0, phase: rand(0, 6), depth: Math.random(), ox: rand(-1, 1), oy: rand(-0.5, 0.5) };
+  fishes.push(f); fishes.sort((a, b) => a.depth - b.depth);
+  if (fresh) water = rec.water;
+  refreshShown();
+  if (rec.water !== water) return;
+  f.x = rand(W * 0.15, W * 0.85); f.y = rand(H * 0.2, sandY - 30);
+  f.dir = f.face = Math.random() < 0.5 ? 1 : -1; retarget(f); if (rec.style === 'bottom') f.y = f.ty;
+  if (fresh) {                                // 새로 넣은 물고기는 위에서 퐁당
+    f.x = W / 2; f.y = -Math.max(fishH(f), fishL(f)) / 2;
+    for (let i = 0; i < 14; i++) bubbles.push({ x: W / 2 + rand(-40, 40), y: rand(0, 60), r: rand(2, 6), v: rand(30, 70), s: rand(0, 6) });
+  }
 }
-function refreshHud() {
-  $('empty').hidden = fishes.length > 0;
-  $('count').textContent = fishes.length ? `내 어항 · ${fishes.length}마리` : '내 어항';
+function placeAll() { for (const f of shown) { f.x = rand(W * 0.15, W * 0.85); f.y = rand(H * 0.2, sandY - 30); f.rest = 0; retarget(f); if (f.rec.style === 'bottom') f.y = f.ty; } }
+function refreshShown() {
+  shown = fishes.filter((f) => f.rec.water === water); rescale();
+  const wn = water === 'sea' ? '바다' : '민물';
+  $('empty').hidden = shown.length > 0;
+  $('empty').firstChild.textContent = fishes.length ? `${wn} 어항에는 아직 물고기가 없어요` : '아직 물고기가 없어요';
+  $('count').textContent = shown.length ? `${wn} · ${shown.length}마리` : `${wn} 어항`;
+  document.querySelectorAll('#seg button').forEach((b) => b.classList.toggle('on', b.dataset.w === water));
+  $('tagBtn').classList.toggle('on', showTags);
+  $('timeBtn').textContent = `시간: ${{ auto: '자동', day: '낮', night: '밤' }[timeMode]}`;
+}
+function setWater(w) { if (w === water) return; water = w; setLS('aq-water', w); pellets.length = 0; bubbles.length = 0; refreshShown(); placeAll(); }
+document.querySelectorAll('#seg button').forEach((b) => (b.onclick = () => setWater(b.dataset.w)));
+$('tagBtn').onclick = () => { showTags = !showTags; setLS('aq-tags', showTags ? '1' : '0'); refreshShown(); };
+$('timeBtn').onclick = () => { timeMode = { auto: 'day', day: 'night', night: 'auto' }[timeMode]; setLS('aq-time', timeMode); refreshShown(); };
+
+// 지금이 낮(1)인지 밤(0)인지: 실제 시각 기준, 새벽·저녁에는 서서히 바뀐다
+function daylight() {
+  if (timeMode !== 'auto') return timeMode === 'day' ? 1 : 0;
+  const d = new Date(), h = d.getHours() + d.getMinutes() / 60, sm = (v) => { v = clamp(v, 0, 1); return v * v * (3 - 2 * v); };
+  return Math.min(sm((h - 5.5) / 1.5), sm((19.5 - h) / 1.5));
+}
+
+function stepFish(f, dt, t) {
+  const st = f.rec.style, { up, L, hh, ey, m, top, bot } = bounds(f);
+  // 먹이: 가장 가까운 알갱이로 달려간다 (바닥 물고기는 바닥 근처 먹이만)
+  let food = null, bd = 1e9;
+  for (const p of pellets) { if (st === 'bottom' && p.y < sandY - H * 0.2) continue; const d = Math.hypot(p.x - f.x, p.y - f.y); if (d < bd) { bd = d; food = p; } }
+  if (food) {
+    const hx = up ? f.x : f.x + f.face * L * 0.45, hy = up ? f.y - L * 0.45 : f.y;
+    if (Math.hypot(food.x - hx, food.y - hy) < Math.max(12, hh * 0.3)) { pellets.splice(pellets.indexOf(food), 1); bubbles.push({ x: hx, y: hy, r: 2, v: 45, s: rand(0, 6) }); food = null; f.timer = 0.6; }
+    else {
+      f.rest = 0;
+      if (!up && Math.abs(food.x - f.x) > L * 0.2) f.dir = food.x > f.x ? 1 : -1;
+      f.tx = up ? food.x : food.x - f.dir * L * 0.45; f.ty = Math.min(up ? food.y + L * 0.45 : food.y, sandY - ey * 0.5);
+    }
+  }
+  const chase = !!food;
+  if (!chase && st === 'school' && f.rest <= 0) {
+    const key = f.rec.name || f.rec.id; let g = groups.get(key);
+    if (!g) groups.set(key, (g = { tx: W / 2, ty: H * 0.4, timer: 0 }));
+    if (g.stamp !== t) { g.stamp = t; g.timer -= dt; if (g.timer < 0) { g.tx = g.tx < W / 2 ? rand(0.62, 0.9) * W : rand(0.1, 0.38) * W; g.ty = rand(H * 0.2, sandY - H * 0.22); g.timer = rand(4, 8); } }
+    f.tx = clamp(g.tx + f.ox * L * 1.1, m, W - m); f.ty = clamp(g.ty + f.oy * L, top, bot);
+  }
+  const dx = f.tx - f.x, dy = f.ty - f.y, dist = Math.hypot(dx, dy);
+  if (!chase && st !== 'school') {
+    if (f.rest > 0) { f.rest -= dt; if (f.rest <= 0) retarget(f); }
+    else if (dist < L * 0.3 + 6 || (f.timer -= dt) < 0) { if (dist >= L * 0.3 + 6) retarget(f); else if (st === 'bottom') f.rest = rand(4, 10); else if (st === 'rock') f.rest = rand(2, 6); else retarget(f); }
+  }
+  const resting = f.rest > 0 && !chase;
+  f.go += ((resting ? 0 : 1) - f.go) * Math.min(1, dt * 2);
+  if (!resting && Math.abs(dx) > (up ? 8 : L * 0.25)) f.dir = dx > 0 ? 1 : -1;
+  f.face += (f.dir - f.face) * Math.min(1, dt * (chase ? 4.5 : 2.6));
+  const base = Math.max(14, f.cruise * L) * (chase ? 2.4 : 1) * f.go;
+  let v = base * (0.35 + 0.65 * Math.abs(f.face));
+  if (chase || up) v *= clamp(Math.abs(dx) / (L * 0.3), 0, 1); else if (st === 'school') v *= clamp(dist / (L * 0.6), 0.15, 1);
+  f.x += f.face * v * dt;
+  const vm = base * (up || chase || st === 'bottom' ? 1 : 0.45), tvy = clamp(dy * (chase ? 2.2 : 0.6), -vm, vm);
+  f.vy += (tvy - f.vy) * Math.min(1, dt * (chase ? 4 : 1.6)); f.y += f.vy * dt;
+  f.phase += dt * (3.2 + 6 * f.cruise) * (0.3 + 0.7 * f.go) * (chase ? 1.8 : 1);
+  ctx.globalAlpha = 0.84 + 0.16 * f.depth;
+  const tilt = up ? Math.sin(t * 0.7 + f.depth * 9) * 0.07 : st === 'bottom' ? 0 : clamp(Math.atan2(f.vy, Math.max(v, 20)) * 0.7, -0.4, 0.4);
+  drawFish(ctx, f.img, f.x, f.y + Math.sin(t * 0.8 + f.depth * 9) * 2 * f.go, L, f.face, tilt, f.phase, up, st === 'bottom' ? 0.5 : 1);
 }
 
 let last = 0;
 function frame(now) {
   const t = now / 1000, dt = Math.min(0.05, (now - last) / 1000 || 0.016); last = now;
+  const sc = SCENES[water], dTarget = daylight();
+  dayCur = dayCur == null ? dTarget : dayCur + (dTarget - dayCur) * Math.min(1, dt * 1.4);
+  const day = dayCur, dusk = 4 * day * (1 - day);
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   // 물
   const g = ctx.createLinearGradient(0, 0, 0, H);
-  g.addColorStop(0, '#35a9d6'); g.addColorStop(0.45, '#12689f'); g.addColorStop(1, '#072c50');
+  [0, 0.45, 1].forEach((p, i) => g.addColorStop(p, mix(sc.night[i], sc.day[i], day)));
   ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-  // 빛줄기
+  // 햇살 (밤에는 희미한 달빛)
   ctx.globalCompositeOperation = 'lighter';
+  const rayA = 0.035 + 0.1 * day;
   for (let i = 0; i < 6; i++) {
     const x = W * (i / 5) + Math.sin(t * 0.21 + i * 1.7) * W * 0.09, w = W * 0.07 * (1 + 0.35 * Math.sin(t * 0.33 + i * 2.1)), sl = H * 0.28;
-    const rg = ctx.createLinearGradient(0, 0, 0, H * 0.85); rg.addColorStop(0, 'rgba(190,240,255,.13)'); rg.addColorStop(1, 'rgba(190,240,255,0)');
+    const rg = ctx.createLinearGradient(0, 0, 0, H * 0.85); rg.addColorStop(0, `rgba(190,240,255,${rayA})`); rg.addColorStop(1, 'rgba(190,240,255,0)');
     ctx.fillStyle = rg; ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x + w, 0); ctx.lineTo(x + w * 2.4 - sl, H * 0.85); ctx.lineTo(x - w - sl, H * 0.85); ctx.fill();
+  }
+  if (day < 0.98) {                            // 달
+    const mg = ctx.createRadialGradient(W * 0.72, -10, 4, W * 0.72, -10, H * 0.55);
+    mg.addColorStop(0, `rgba(200,220,255,${0.5 * (1 - day)})`); mg.addColorStop(0.12, `rgba(160,190,255,${0.16 * (1 - day)})`); mg.addColorStop(1, 'rgba(160,190,255,0)');
+    ctx.fillStyle = mg; ctx.fillRect(0, 0, W, H);
+  }
+  if (dusk > 0.02) {                           // 노을
+    const dg = ctx.createLinearGradient(0, 0, 0, H * 0.6); dg.addColorStop(0, `rgba(255,140,70,${0.3 * dusk})`); dg.addColorStop(1, 'rgba(255,140,70,0)');
+    ctx.fillStyle = dg; ctx.fillRect(0, 0, W, H);
   }
   ctx.globalCompositeOperation = 'source-over';
   // 수초
   ctx.lineCap = 'round';
-  for (const wd of weeds) {
+  for (const wd of sc.weeds) {
     const x0 = wd.x * W, hgt = wd.h * H, K = 9;
     for (let k = 0; k < K; k++) {
       const a = k / K, b = (k + 1) / K;
-      const xa = x0 + Math.sin(t * 0.9 + a * 3 + wd.seed) * a * a * 26, xb = x0 + Math.sin(t * 0.9 + b * 3 + wd.seed) * b * b * 26;
+      const xa = x0 + Math.sin(t * 0.9 + a * 3 + wd.seed) * a * a * sc.sway, xb = x0 + Math.sin(t * 0.9 + b * 3 + wd.seed) * b * b * sc.sway;
       ctx.strokeStyle = `hsl(${wd.hue} 55% ${16 + a * 16}%)`; ctx.lineWidth = wd.w * (1 - a * 0.75);
       ctx.beginPath(); ctx.moveTo(xa, sandY + 6 - a * hgt); ctx.lineTo(xb, sandY + 6 - b * hgt); ctx.stroke();
     }
   }
-  // 모래 바닥
-  const sg = ctx.createLinearGradient(0, sandY - 10, 0, H); sg.addColorStop(0, '#b9ad84'); sg.addColorStop(1, '#4f5546');
+  // 수면의 연잎 (민물)
+  for (const p of sc.pads) {
+    const px = p.x * W + Math.sin(t * 0.4 + p.r) * 5;
+    ctx.strokeStyle = 'rgba(20,60,40,.55)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(px, 4); ctx.quadraticCurveTo(px + 30, H * 0.5, px + 12, sandY + 4); ctx.stroke();
+    ctx.fillStyle = 'rgba(14,52,34,.9)'; ctx.beginPath(); ctx.ellipse(px, 2, p.r, p.r * 0.3, 0, 0, 7); ctx.fill();
+  }
+  // 바위
+  const R = rockR();
+  for (const l of sc.lumps) {
+    const cx = (sc.rockX + l.dx) * W, rw = R * l.w, rh = R * l.h;
+    const rgd = ctx.createLinearGradient(0, sandY - rh, 0, sandY + 6); rgd.addColorStop(0, sc.rock[0]); rgd.addColorStop(1, sc.rock[1]);
+    ctx.fillStyle = rgd; ctx.beginPath(); ctx.ellipse(cx, sandY + 6, rw, rh, 0, Math.PI, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,.07)'; ctx.beginPath(); ctx.ellipse(cx - rw * 0.2, sandY + 6 - rh * 0.55, rw * 0.4, rh * 0.22, -0.3, 0, 7); ctx.fill();
+  }
+  // 바닥
+  const sg = ctx.createLinearGradient(0, sandY - 10, 0, H); sg.addColorStop(0, sc.sand[0]); sg.addColorStop(1, sc.sand[1]);
   ctx.fillStyle = sg; ctx.beginPath(); ctx.moveTo(0, H);
   for (let x = 0; x <= W + 20; x += 20) ctx.lineTo(x, sandY + Math.sin(x * 0.013) * 7 + Math.sin(x * 0.041 + 2) * 3);
   ctx.lineTo(W, H); ctx.fill();
   for (const p of pebbles) { ctx.fillStyle = `rgb(${p.c},${p.c + 8},${p.c + 4})`; ctx.beginPath(); ctx.ellipse(p.x * W, sandY + 8 + p.y * (H - sandY - 8), p.r * 1.4, p.r, 0, 0, 7); ctx.fill(); }
 
-  // 물고기
-  for (const f of fishes) {
-    const L = fishL(f), dx = f.tx - f.x, dy = f.ty - f.y;
-    f.timer -= dt;
-    if (Math.hypot(dx, dy) < L * 0.3 + 6 || f.timer < 0) retarget(f);
-    if (Math.abs(dx) > L * 0.25) f.dir = dx > 0 ? 1 : -1;
-    f.face += (f.dir - f.face) * Math.min(1, dt * 2.6);
-    const v = Math.max(14, f.cruise * L) * (0.35 + 0.65 * Math.abs(f.face));
-    f.x += f.face * v * dt;
-    const tvy = clamp(dy * 0.6, -v * 0.45, v * 0.45);
-    f.vy += (tvy - f.vy) * Math.min(1, dt * 1.6); f.y += f.vy * dt;
-    f.phase += dt * (3.2 + 6 * f.cruise);
-    ctx.globalAlpha = 0.84 + 0.16 * f.depth;
-    drawFish(ctx, f.img, f.x, f.y + Math.sin(t * 0.8 + f.depth * 9) * 2, L, f.face, clamp(Math.atan2(f.vy, v) * 0.7, -0.4, 0.4), f.phase);
+  // 먹이
+  ctx.fillStyle = '#c98a4a';
+  for (let i = pellets.length - 1; i >= 0; i--) {
+    const p = pellets[i];
+    if (p.y < sandY + 2) { p.y += p.vy * dt; p.x += Math.sin(t * 2.2 + p.s) * 8 * dt; } else if ((p.life -= dt) < 0) { pellets.splice(i, 1); continue; }
+    ctx.beginPath(); ctx.arc(p.x, p.y, 2.6, 0, 7); ctx.fill();
   }
+  // 물고기
+  for (const f of shown) stepFish(f, dt, t);
   ctx.globalAlpha = 1;
 
   // 공기방울
-  if (Math.random() < dt * 2.2) { const src = weeds[(Math.random() * 3) | 0].x * W; bubbles.push({ x: src + rand(-6, 6), y: sandY, r: rand(1.5, 4.5), v: rand(25, 60), s: rand(0, 6) }); }
+  if (Math.random() < dt * 2.2) { const src = sc.weeds[(Math.random() * 3) | 0].x * W; bubbles.push({ x: src + rand(-6, 6), y: sandY, r: rand(1.5, 4.5), v: rand(25, 60), s: rand(0, 6) }); }
   ctx.strokeStyle = 'rgba(220,245,255,.55)'; ctx.fillStyle = 'rgba(220,245,255,.12)'; ctx.lineWidth = 1;
   for (let i = bubbles.length - 1; i >= 0; i--) {
     const b = bubbles[i]; b.y -= b.v * dt; const bx = b.x + Math.sin(t * 2 + b.s) * 4;
     if (b.y < -10) { bubbles.splice(i, 1); continue; }
     ctx.beginPath(); ctx.arc(bx, b.y, b.r, 0, 7); ctx.fill(); ctx.stroke();
+  }
+  // 밤에는 전체를 어둡게
+  if (day < 0.99) { ctx.fillStyle = `rgba(2,8,26,${0.42 * (1 - day)})`; ctx.fillRect(0, 0, W, H); }
+  // 이름표
+  if (showTags) {
+    ctx.font = '600 12px -apple-system, "Apple SD Gothic Neo", sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    for (const f of shown) {
+      const b = bounds(f), txt = `${f.rec.name || '물고기'} ${f.rec.lengthCm}cm`, tw = ctx.measureText(txt).width + 14, ty = Math.max(70, f.y - b.ey - 14);
+      ctx.fillStyle = 'rgba(4,20,38,.6)'; ctx.beginPath(); (ctx.roundRect ? ctx.roundRect(f.x - tw / 2, ty - 10, tw, 20, 10) : ctx.rect(f.x - tw / 2, ty - 10, tw, 20)); ctx.fill();
+      ctx.fillStyle = '#eaf6ff'; ctx.fillText(txt, f.x, ty + 0.5);
+    }
+    ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
   }
   // 눈금자: 실제 크기 가늠용
   const unit = pxPerCm * 10 < 26 ? 50 : 10, bl = unit * pxPerCm, by = H - 24;
@@ -205,15 +350,16 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 
-// 물고기를 누르면 정보 보기
+// 물고기를 누르면 정보, 빈 물을 누르면 먹이
 let down = null;
 tank.addEventListener('pointerdown', (e) => (down = { x: e.clientX, y: e.clientY }));
 tank.addEventListener('pointerup', (e) => {
   if (!down || Math.hypot(e.clientX - down.x, e.clientY - down.y) > 12) return;
-  for (let i = fishes.length - 1; i >= 0; i--) {
-    const f = fishes[i];
-    if (Math.abs(e.clientX - f.x) < Math.max(fishL(f) / 2, 26) && Math.abs(e.clientY - f.y) < Math.max(fishH(f) / 2, 26)) return openSheet(f);
+  for (let i = shown.length - 1; i >= 0; i--) {
+    const f = shown[i], b = bounds(f);
+    if (Math.abs(e.clientX - f.x) < Math.max(b.ex, 26) && Math.abs(e.clientY - f.y) < Math.max(b.ey, 26)) return openSheet(f);
   }
+  if (e.clientY < sandY - 10 && pellets.length < 60) for (let i = 0; i < 6; i++) pellets.push({ x: e.clientX + rand(-16, 16), y: e.clientY + rand(-8, 8), vy: rand(22, 40), s: rand(0, 6), life: 10 });
 });
 
 // ───────────────────────── 정보 카드
@@ -241,19 +387,19 @@ async function openSheet(f) {
 function closeSheet() { $('sheet').hidden = $('sheetBg').hidden = true; cur = null; }
 $('sClose').onclick = $('sheetBg').onclick = closeSheet;
 $('sEdit').onclick = () => {
-  const r = cur.rec; $('eName').value = r.name || ''; $('eLen').value = r.lengthCm; $('eDate').value = r.date || ''; $('ePlace').value = r.place || ''; $('eMemo').value = r.memo || '';
+  const r = cur.rec; $('eName').value = r.name || ''; $('eLen').value = r.lengthCm; $('eDate').value = r.date || ''; $('ePlace').value = r.place || ''; $('eMemo').value = r.memo || ''; $('eWater').value = r.water; $('eStyle').value = r.style;
   $('sView').hidden = true; $('sForm').hidden = false;
 };
 $('eCancel').onclick = () => { $('sView').hidden = false; $('sForm').hidden = true; };
 $('eSave').onclick = async () => {
   const len = parseFloat($('eLen').value); if (!(len > 0)) return toast('길이를 cm로 적어 주세요');
-  const r = cur.rec; Object.assign(r, { name: $('eName').value.trim(), lengthCm: len, date: $('eDate').value, place: $('ePlace').value.trim(), memo: $('eMemo').value.trim() });
-  await store('readwrite', (s) => s.put(r)); rescale(); showFacts(r); $('eCancel').onclick(); toast('저장했어요');
+  const r = cur.rec; Object.assign(r, { name: $('eName').value.trim(), lengthCm: len, date: $('eDate').value, place: $('ePlace').value.trim(), memo: $('eMemo').value.trim(), water: $('eWater').value, style: $('eStyle').value });
+  await store('readwrite', (s) => s.put(r)); const moved = r.water !== water; refreshShown(); if (moved) { closeSheet(); return toast('다른 어항으로 옮겼어요'); } cur.rest = 0; retarget(cur); showFacts(r); $('eCancel').onclick(); toast('저장했어요');
 };
 $('sDel').onclick = async () => {
   if (!confirm(`${cur.rec.name || '이 물고기'}를 어항에서 뺄까요?\n사진과 기록이 함께 지워져요.`)) return;
   await store('readwrite', (s) => s.delete(cur.rec.id));
-  fishes.splice(fishes.indexOf(cur), 1); rescale(); refreshHud(); closeSheet();
+  fishes.splice(fishes.indexOf(cur), 1); refreshShown(); closeSheet();
 };
 
 // 도감
@@ -265,7 +411,7 @@ $('bookBtn').onclick = () => {
     const img = document.createElement('img'); img.src = f.img.src; b.append(img);
     const n = document.createElement('b'); n.textContent = `${f.rec.name || '물고기'} · ${f.rec.lengthCm}cm`; b.append(n);
     const s = document.createElement('small'); s.textContent = [dateText(f.rec.date), f.rec.place].filter(Boolean).join(' · ') || '기록 없음'; b.append(s);
-    b.onclick = () => { $('book').hidden = true; openSheet(f); }; g.append(b);
+    b.onclick = () => { $('book').hidden = true; setWater(f.rec.water); openSheet(f); }; g.append(b);
   });
   $('book').hidden = false;
 };
@@ -440,7 +586,7 @@ $('cutNext').onclick = async () => {
   $('cut').hidden = true; $('info').hidden = false;
   if (!E.formReady) {
     E.formReady = true; const m = E.meta;
-    $('fName').value = ''; $('fLen').value = ''; $('fMemo').value = ''; $('fPlace').value = '';
+    $('fName').value = ''; $('fWater').value = E.baseWater = water; $('fStyle').value = 'normal'; E.touched = false; $('fLen').value = ''; $('fMemo').value = ''; $('fPlace').value = '';
     const today = new Date(), iso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
     $('fDate').value = m.date || iso;
     const bits = [m.date ? `사진에 기록된 날짜: ${dateText(m.date)}` : '사진에 날짜 정보가 없어 오늘 날짜로 넣었어요. 다르면 고쳐 주세요.'];
@@ -450,6 +596,9 @@ $('cutNext').onclick = async () => {
   }
   previewLoop();
 };
+// 어종 이름을 적으면 헤엄 방식·사는 물을 미리 골라 준다 (직접 바꾼 뒤에는 건드리지 않음)
+$('fName').oninput = () => { if (E.touched) return; const n = $('fName').value; $('fStyle').value = guessStyle(n); $('fWater').value = FRESH_GUESS.test(n) ? 'fresh' : STYLE_GUESS.some(([re]) => re.test(n)) ? 'sea' : E.baseWater; };
+$('fWater').onchange = $('fStyle').onchange = () => (E.touched = true);
 $('infoBack').onclick = () => { $('info').hidden = true; $('cut').hidden = false; fitStage(); };
 
 function previewLoop(now = 0) {
@@ -470,12 +619,12 @@ $('infoSave').onclick = async () => {
   try {
     const rec = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, name: $('fName').value.trim(), lengthCm: len,
-      date: $('fDate').value, place: $('fPlace').value.trim(), memo: $('fMemo').value.trim(),
+      date: $('fDate').value, place: $('fPlace').value.trim(), memo: $('fMemo').value.trim(), water: $('fWater').value, style: $('fStyle').value,
       lat: E.meta.lat ?? null, lon: E.meta.lon ?? null, createdAt: Date.now(),
       cutout: await toBlob(E.cut, 'image/png'), photo: await toBlob(cPhoto, 'image/jpeg', 0.85),
     };
     await store('readwrite', (s) => s.put(rec));
-    addFish(rec, await loadImg(rec.cutout), true);
+    setWater(rec.water); addFish(rec, await loadImg(rec.cutout), true);
     $('info').hidden = true; toast(`${rec.name || '물고기'}가 어항에 들어갔어요`);
   } catch (err) { console.error(err); toast('저장에 실패했어요. 폰 저장 공간을 확인해 주세요', 4000); }
   finally { $('infoSave').disabled = false; }
@@ -488,7 +637,7 @@ resize(); requestAnimationFrame(frame);
     const all = await store('readonly', (s) => s.getAll());
     for (const rec of all) addFish(rec, await loadImg(rec.cutout), false);
   } catch (err) { console.error(err); toast('저장된 물고기를 불러오지 못했어요'); }
-  refreshHud();
+  refreshShown();
   navigator.storage?.persist?.();                         // 폰이 기록을 멋대로 지우지 않게 요청
 })();
 
