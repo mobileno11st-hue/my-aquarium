@@ -152,6 +152,19 @@
   .gnote b { color: var(--txt); }
   .gfoot { padding: 10px 24px 16px; }
   .gfoot .btn { width: 100%; max-width: 420px; display: block; margin: 0 auto; padding: 15px; font-size: 16px; border-radius: 14px; }
+
+  /* 어항 꾸미기 */
+  #decoBar { position: fixed; left: 0; right: 0; top: 0; z-index: 6; background: rgba(6,24,42,.86); border-bottom: 1px solid var(--line); border-radius: 0 0 20px 20px;
+    padding: calc(env(safe-area-inset-top) + 10px) 12px 10px; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+  body.deco .top, body.deco .top2, body.deco #logo, body.deco #addBtn, body.deco #empty { display: none; }
+  .drow { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  #decoHint { flex: 1; font-size: 13px; color: var(--sub); }
+  .drow .btn { padding: 8px 14px; font-size: 14px; }
+  .dtray { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; padding-bottom: 2px; }
+  .dtray::-webkit-scrollbar { display: none; }
+  .dtray button { flex: none; width: 68px; padding: 6px 2px 7px; border-radius: 14px; background: rgba(255,255,255,.07); border: 1px solid var(--line); font-size: 12px; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+  .dtray canvas { width: 52px; height: 52px; }
+  .dtray button:active { background: rgba(255,255,255,.18); }
 </style>
 </head>
 <body>
@@ -162,7 +175,7 @@
   <div class="pill seg" id="seg"><button data-w="sea">바다</button><button data-w="fresh">민물</button></div>
   <button class="pill" id="bookBtn">도감</button>
 </div>
-<div class="top2"><button class="pill sm" id="tagBtn">이름표</button><button class="pill sm" id="timeBtn">시간: 자동</button><button class="pill sm" id="helpBtn">사용법</button></div>
+<div class="top2"><button class="pill sm" id="tagBtn">이름표</button><button class="pill sm" id="timeBtn">시간: 자동</button><button class="pill sm" id="decoBtn">꾸미기</button><button class="pill sm" id="helpBtn">사용법</button></div>
 <img id="logo" src="icons/logo.png" alt="RealFishing 진짜낚시 리얼피싱">
 <div id="empty" hidden>아직 물고기가 없어요<small>아래 + 버튼으로 잡은 물고기 사진을 넣어 보세요</small></div>
 <button class="fab" id="addBtn" aria-label="물고기 추가">+</button>
@@ -307,7 +320,7 @@
         <div><svg class="gico" viewBox="0 0 24 24"><rect x="4.5" y="3.5" width="15" height="17" rx="3"/><path d="M8 8h8M8 12h8M8 16h5"/></svg><b>기록 보기</b><small>물고기를 누르면 언제 어디서 잡았는지 나와요</small></div>
         <div><svg class="gico" viewBox="0 0 24 24"><path d="M3 9c3-3 6 3 9 0s6 3 9 0M3 15c3-3 6 3 9 0s6 3 9 0"/></svg><b>바다 · 민물</b><small>위쪽 버튼으로 어항을 바꿔요</small></div>
         <div><svg class="gico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 3v2.5M12 18.5V21M3 12h2.5M18.5 12H21M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M5.6 18.4l1.8-1.8M16.6 7.4l1.8-1.8"/></svg><b>낮과 밤</b><small>실제 시간에 맞춰 물빛이 바뀌어요</small></div>
-        <div><svg class="gico" viewBox="0 0 24 24"><path d="M4 8.5A2.5 2.5 0 0 1 6.5 6H13l7 6-7 6H6.5A2.5 2.5 0 0 1 4 15.5z"/><circle cx="8.5" cy="12" r="1.3"/></svg><b>이름표</b><small>어종과 길이가 물고기를 따라다녀요</small></div>
+        <div><svg class="gico" viewBox="0 0 24 24"><path d="M4 8.5A2.5 2.5 0 0 1 6.5 6H13l7 6-7 6H6.5A2.5 2.5 0 0 1 4 15.5z"/><circle cx="8.5" cy="12" r="1.3"/></svg><b>꾸미기</b><small>해초·말미잘·조개·게로 어항을 꾸며요</small></div>
         <div><svg class="gico" viewBox="0 0 24 24"><path d="M5 4.5h11a3 3 0 0 1 3 3v12H8a3 3 0 0 1-3-3zM5 16.5a3 3 0 0 1 3-3h11"/></svg><b>도감</b><small>지금까지 잡은 물고기를 한눈에 봐요</small></div>
       </div>
       <p class="gnote">사진과 기록은 <b>내 폰에만</b> 저장돼요. 다른 사람에게 보이지 않습니다.</p>
@@ -317,6 +330,12 @@
   <div class="gfoot"><button class="btn main" id="gNext">다음</button></div>
 </div>
 
+<!-- 어항 꾸미기 -->
+<div id="decoBar" hidden>
+  <div class="drow"><span id="decoHint"></span><button class="btn main" id="dDone">완료</button></div>
+  <div class="drow"><button class="btn" id="dSmall">작게</button><button class="btn" id="dBig">크게</button><button class="btn danger" id="dDel">빼기</button></div>
+  <div class="dtray" id="dTray"></div>
+</div>
 <div id="tip" hidden><span id="tipText"></span><button id="tipClose" aria-label="닫기">✕</button></div>
 <div id="toast" hidden></div>
 <script type="module" src="app.js"></script>
